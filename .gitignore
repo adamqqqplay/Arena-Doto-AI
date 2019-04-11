@@ -30,6 +30,13 @@
 *.exe
 *.out
 *.app
+!server/mainbase.exe
 
 # Python
 *.pyc
+
+# Folder
+arena9
+
+# Replay files
+server/Replay

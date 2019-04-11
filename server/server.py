@@ -111,11 +111,11 @@ class player (threading.Thread):
 
 # 请在双引号内输入命令
 if platform.system() == "Windows":
-    players.append(player("main.exe", 0))
-    players.append(player("main.exe", 1))
+    players.append(player("main0.exe", 0))
+    players.append(player("mainbase.exe", 1))
 else:
-    players.append(player("./main.exe", 0))
-    players.append(player("./main.exe", 1))
+    players.append(player("./main0.exe", 0))
+    players.append(player("./mainbase.exe", 1))
 print("start player")
 for pla in players:
     pla.start()
