@@ -74,19 +74,19 @@ void move_s(int num, Point v)
 int dis[320][320], inf_dis;
 queue<pair<int, int>> Q;
 #define mp(a, b) make_pair((a), (b))
-//自动寻路系统
+//类似于广度优先搜索的自动寻路系统
 void move_stupid(int num, Point v)
 {
-	memset(dis, 127, sizeof dis);
+	memset(dis, 127, sizeof dis);	//全部赋值为127
 	memset(&inf_dis, 127, sizeof(int));
 	Point pos = GetUnit(num).position;
-	Q.push(mp((int)v.x, (int)v.y));
-	dis[(int)v.x][(int)v.y] = 0;
+	Q.push(mp((int)v.x, (int)v.y));	//将目标点放入队列
+	dis[(int)v.x][(int)v.y] = 0;	//将目标点的距离设置为0
 	while (!Q.empty()) //非空队列
 	{
-		pair<int, int> st = Q.front();
-		Q.pop();
-		int D = dis[st.first][st.second];
+		pair<int, int> st = Q.front();	//获取队列中的第一个点
+		Q.pop();	//弹出该点
+		int D = dis[st.first][st.second];	//大D为此点的距离
 		for (int direct = 0; direct < 4; direct++)
 		{
 			int dx = 0, dy = 0, x, y;
@@ -98,17 +98,17 @@ void move_stupid(int num, Point v)
 				dy = -1;
 			if (direct == 3)
 				dy = 1;
-			x = dx + st.first;
+			x = dx + st.first;	//(x,y)为该点的周围四个点
 			y = dy + st.second;
-			if (!isWall(x, y) && dis[x][y] == inf_dis)
+			if (!isWall(x, y) && dis[x][y] == inf_dis)	//当这个周围的点不是墙，并且该点没有被遍历过
 			{
-				dis[x][y] = D + 1;
-				Q.push(mp(x, y));
+				dis[x][y] = D + 1;	//那么距离+1
+				Q.push(mp(x, y));	//同时将新点放入队列
 			}
 		}
 	}
-	//move_s(num,v);
-	//return;
+	//当遍历完之后，离目标点越近的点dis越小
+
 	int px = pos.x, py = pos.y;
 	int base = rand() % 4;
 	for (int i = 0; i < 4; i++)
@@ -123,11 +123,11 @@ void move_stupid(int num, Point v)
 			dy = -1;
 		if (direct == 3)
 			dy = 1;
-		x = px + dx;
+		x = px + dx;	//(x,y)为单位的周围四个点
 		y = py + dy;
-		if (dis[x][y] < dis[px][py])
+		if (dis[x][y] < dis[px][py])	//当新点的距离比现在的点距离小时进行相对移动
 		{
-			if (dis[px + dx * 2][py + dy * 2] < dis[x][y])
+			if (dis[px + dx * 2][py + dy * 2] < dis[x][y]) //当现在的点位移2格之后比新点距离小时
 				dx *= 2, dy *= 2;
 			move_relative(num, Point(dx, dy));
 			return;
