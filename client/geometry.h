@@ -13,12 +13,14 @@ const double	PI = 3.14159265;
 using namespace std;
 /* 基本几何结构 */
 
+//点
 struct Point {
 	double x, y;
 	Point() {};
 	Point(double a, double b) { x = a; y = b; }
 };
 
+//两点式
 struct Lineseg {
 	Point s;
 	Point e;
@@ -26,6 +28,7 @@ struct Lineseg {
 	Lineseg() { }
 };
 
+//一般式
 struct Line {         // 直线的解析方程 a*x+b*y+c=0  为统一表示，约定 a >= 0 
 	double a;
 	double b;

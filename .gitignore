@@ -37,6 +37,7 @@
 
 # Folder
 arena9
+.vscode
 
 # Replay files
 server/Replay
