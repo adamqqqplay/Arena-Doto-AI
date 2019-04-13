@@ -62,6 +62,41 @@ Point rotate(Point o, double alpha, Point p)
 }
 
 /******************************************************************************
+返回以点o为圆心的圆上坐标
+*******************************************************************************/
+Point getNearbyPoint(Point o, double alpha, double radius)
+{
+	Point tp;
+	tp.x = o.x + radius * cos(alpha);
+	tp.y = o.y + radius * sin(alpha);
+	return tp;
+}
+
+
+/******************************************************************************
+返回以圆心到圆的向量
+*******************************************************************************/
+Point getNearbyVector(double alpha, double radius)
+{
+	Point tp;
+	tp.x = radius * cos(alpha);
+	tp.y = radius * sin(alpha);
+	return tp;
+}
+
+//弧度转角度
+double rad2deg(double x)
+{
+	return (x)*180.0 / PI;
+}
+
+//角度转弧度
+double deg2rad(double x)
+{
+	return (x)*PI / 180.0;
+}
+
+/******************************************************************************
 返回顶角在o点，起始边为os，终止边为oe的夹角(单位：弧度)
 角度小于pi，返回正值
 角度大于pi，返回负值
