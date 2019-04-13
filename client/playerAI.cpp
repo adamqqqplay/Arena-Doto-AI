@@ -4,6 +4,7 @@
 #include <algorithm>
 #include <ctime>
 #include <math.h>
+#include "log/log.h"
 using namespace std;
 
 Logic *logic;
@@ -424,6 +425,9 @@ bool isPointValid(Point p)
 //主思考函数
 void playerAI()
 {
+	//Log log(LOG_ADD, LOG_INFO);
+    //log.write(YFL,LOG_INFO, "info级别的日志输出：%s", "12345");//INFO级别不低于log1的下限INFO级别，正常写入日志文件
+	
 	logic = Logic::Instance(); //获取实例
 	if (logic->frame == 1)	 //第一帧初始化种子
 	{
