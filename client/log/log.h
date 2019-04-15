@@ -4,9 +4,16 @@
 #include <string>
 #include <sys/stat.h>
 #include <assert.h>
+
+#ifdef _WIN32
 #include <direct.h>
+#elseif _LINUX
+#include <unistd.h>
+#endif
+
 #include <stdarg.h>
 #include <time.h>
+#include <string.h>
 
 #define YFL __FILE__,__LINE__
 

@@ -1,4 +1,4 @@
-#include "Log.h"
+#include "log.h"
 
 char logMsg[LOG_MAXBUF];
 
