@@ -1,5 +1,15 @@
 #include "geometry.h"
 
+Point operator+(const Point &A, const Point &B)
+{
+	return Point(A.x + B.x, A.y + B.y);
+}
+
+Point operator-(const Point &A, const Point &B)
+{
+	return Point(A.x - B.x, A.y - B.y);
+}
+
 /**********************
 *                    *
 *   点的基本运算     *

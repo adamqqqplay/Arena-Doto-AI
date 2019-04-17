@@ -20,6 +20,10 @@ struct Point {
 	Point(double a, double b) { x = a; y = b; }
 };
 
+Point operator+(const Point &A, const Point &B);
+
+Point operator-(const Point &A, const Point &B);
+
 //两点式
 struct Lineseg {
 	Point s;

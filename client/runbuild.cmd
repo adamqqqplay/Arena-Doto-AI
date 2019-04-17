@@ -11,5 +11,5 @@ copy main.out "..\server\main0.exe"
 make clean
 cd ..\server\
 start python server.py
-start python server.py
+start python server2.py
 pause
