@@ -7,7 +7,7 @@
 
 #ifdef _WIN32
 #include <direct.h>
-#elseif _LINUX
+#elif _LINUX
 #include <unistd.h>
 #endif
 
