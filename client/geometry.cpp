@@ -1,5 +1,15 @@
 #include "geometry.h"
 
+Point operator+(const Point &A, const Point &B)
+{
+	return Point(A.x + B.x, A.y + B.y);
+}
+
+Point operator-(const Point &A, const Point &B)
+{
+	return Point(A.x - B.x, A.y - B.y);
+}
+
 /**********************
 *                    *
 *   点的基本运算     *
@@ -59,6 +69,41 @@ Point rotate(Point o, double alpha, Point p)
 	tp.x = p.x * cos(alpha) - p.y * sin(alpha) + o.x;
 	tp.y = p.y * cos(alpha) + p.x * sin(alpha) + o.y;
 	return tp;
+}
+
+/******************************************************************************
+返回以点o为圆心的圆上坐标
+*******************************************************************************/
+Point getNearbyPoint(Point o, double alpha, double radius)
+{
+	Point tp;
+	tp.x = o.x + radius * cos(alpha);
+	tp.y = o.y + radius * sin(alpha);
+	return tp;
+}
+
+
+/******************************************************************************
+返回以圆心到圆的向量
+*******************************************************************************/
+Point getNearbyVector(double alpha, double radius)
+{
+	Point tp;
+	tp.x = radius * cos(alpha);
+	tp.y = radius * sin(alpha);
+	return tp;
+}
+
+//弧度转角度
+double rad2deg(double x)
+{
+	return (x)*180.0 / PI;
+}
+
+//角度转弧度
+double deg2rad(double x)
+{
+	return (x)*PI / 180.0;
 }
 
 /******************************************************************************

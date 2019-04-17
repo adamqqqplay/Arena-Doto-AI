@@ -20,6 +20,10 @@ struct Point {
 	Point(double a, double b) { x = a; y = b; }
 };
 
+Point operator+(const Point &A, const Point &B);
+
+Point operator-(const Point &A, const Point &B);
+
 //两点式
 struct Lineseg {
 	Point s;
@@ -77,6 +81,22 @@ bool onLine(Lineseg l, Point p);
 返回点p以点o为圆心逆时针旋转alpha(单位：弧度)后所在的位置
 *******************************************************************************/
 Point rotate(Point o, double alpha, Point p);
+
+/******************************************************************************
+返回以点o为圆心的圆上坐标
+*******************************************************************************/
+Point getNearbyPoint(Point o, double alpha, double radius);
+
+/******************************************************************************
+返回以圆心到圆的向量
+*******************************************************************************/
+Point getNearbyVector(double alpha, double radius);
+
+//弧度转角度
+double rad2deg(double x);
+
+//角度转弧度
+double deg2rad(double x);
 
 /******************************************************************************
 返回顶角在o点，起始边为os，终止边为oe的夹角(单位：弧度)
