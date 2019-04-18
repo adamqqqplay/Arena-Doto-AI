@@ -3,13 +3,15 @@
 char logMsg[LOG_MAXBUF];
 
 Log::Log(const int type, const int level){
+	time (&(this->t));
+	this->lt = localtime (&(this->t));
 	
 	this->level=level;
 	if(LOG_RELEASE <= level || LOG_MIN > level){
 		this->file = NULL;
 		return;
 	}
-	sprintf(this->path, "%s.log", "playerAI");
+	sprintf(this->path, "%s_%02d_%02d_%02d.log", "playerAI_",lt->tm_hour,lt->tm_min,lt->tm_sec);
 	
 	this->file = NULL;
 	if (NULL != this->file)	{
@@ -71,11 +73,11 @@ void Log::write(const char* logfilename, const int logfileline, const int level,
 		assert(NULL != this->file);
 
 		time (&(this->t));
-		this->lt = localtime (&(this->t));
+		this->lt = localtime (&(this->t));	//tm_mon里面0表示1月
 
-		fprintf(this->file, "[%d-%d-%d %d:%d:%d] %-9.9s  %s(%d): %s\n", 
+		fprintf(this->file, "[%04d-%02d-%02d %02d:%02d:%02d] %-9.9s  %s(%d): %s\n", 
 			this->lt->tm_year+1900,
-			this->lt->tm_mon,
+			this->lt->tm_mon+1,	
 			this->lt->tm_mday,
 			this->lt->tm_hour,
 			this->lt->tm_min,
