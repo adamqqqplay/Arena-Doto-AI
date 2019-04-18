@@ -117,6 +117,7 @@ targets = [TargetArea(Point(t[0], t[1])) for t in target_places]
 bonuses = [Bonus(num,Point(t[0],t[1])) for num,t in enumerate(bonus_places)]
 score = [0.0] * faction_number
 
+debugMsgs = ['']*faction_number
 
 def sendLog(log, Type=0, UserCode=-1):
     if DEBUG:
@@ -180,6 +181,7 @@ class Listen(threading.Thread):
         "shoot": [[-1, -1]] * human_number,
         "meteor": [[-1, -1]] * human_number,
         "flash": [False] * human_number,
+        "debug":"",
     }
 
     def __init__(self):
@@ -484,9 +486,7 @@ def RunGame():
 
         # Rebirth
         for human in humans:
-            if human.death_time > 0:
-                human.death_time -= 1
-            elif human.death_time == 0:
+            if human.death_time == 0:
                 human.reset()
                 human.death_time = -1
                 Ev(8, human.number)
@@ -531,6 +531,13 @@ def RunGame():
                 WriteToLogFile('Player {}:'.format(i), an)
         if DEBUG:
             WriteToLogFile("Listen Succeed")
+
+        for fac,a in enumerate(analysis):
+            if 'debug' in a:
+                if a['debug']!='':
+                    debugMsgs[fac]+='Frames = {}\n'.format(timecnt)
+                    debugMsgs[fac]+=a['debug']
+                    debugMsgs[fac]+='\n\n'
 
         # flash
         for fac, a in enumerate(analysis):
@@ -690,9 +697,16 @@ def RunGame():
         replay_dir = save_dir
     name = replay_dir[replay_dir.rfind('/')+1:]
     Dir = replay_dir[:replay_dir.rfind('/')+1]
+    for i in range(faction_number):
+        with open(Dir+name.replace(".zip","_player{}_debug.txt".format(i)),'w')as file:
+            file.write(debugMsgs[i])
     with open(Dir+name.replace(".zip",".json"), "w")as file:
         file.write(json.dumps(logs))
-    os.system("cd {0} && zip -r {1} {2} && rm {2}".format(Dir,name,name.replace(".zip",".json")))
+    command = "cd {0} && zip -rq {1} {2} ".format(Dir,name,name.replace(".zip",".json"))
+    for i in range(faction_number):
+        command += name.replace(".zip","_player{}_debug.txt".format(i))+" "
+    command += "&& rm -f *.json *.txt"
+    os.system(command)
     if DEBUG:
         WriteToLogFile("################### Result ###################")
         for i, sc in enumerate(score):

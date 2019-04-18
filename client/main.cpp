@@ -256,11 +256,14 @@ void sendMessage(bool gameover = false)
 		{
 			flash.append(Json::Value(ope.flash[i]));
 		}
+		Json::Value debug = Json::Value(Logic::Instance()->debugMsg.substr(0, 1024));
+
 		message["flag"] = 0;
 		message["move"] = move;
 		message["shoot"] = shoot;
 		message["meteor"] = meteor;
 		message["flash"] = flash;
+		message["debug"] = debug;
 	}
 	else
 	{

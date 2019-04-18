@@ -41,6 +41,7 @@ bool Logic::isWall(int x, int y){
 }
 //初始化地图
 void Logic::initMap(int w, int h, int f, int hn, vector<vector<Point>> b, vector<Point> c, vector<Point> t, vector<Point> bo, vector<vector<bool>> p, int ti) {
+	debugMsg = "";
 	return map.set(w, h, f, hn, b, c, t, bo, p, ti);
 }
 //获取帧
@@ -59,4 +60,12 @@ void Logic::resetOpe() {
 	ope.shoot = vector<Point>(map.human_number, Point(-1, -1));
 	ope.meteor = vector<Point>(map.human_number, Point(-1, -1));
 	ope.flash = vector<bool>(map.human_number, false);
+}
+
+void Logic::debug(string msg) {
+	debugMsg = msg;
+}
+
+void Logic::debugAppend(string amsg) {
+	debugMsg += amsg;
 }

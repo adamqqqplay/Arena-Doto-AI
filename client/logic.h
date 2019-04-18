@@ -4,6 +4,7 @@
 #include "geometry.h"
 
 #include <vector>
+#include <string>
 using namespace std;
 using namespace CONST;
 
@@ -144,6 +145,11 @@ public:
 	void unflash(int num);		   //取消你控制的第num个人的闪现指令
 
 	//注意，这里你控制的第num个人实际上是humans中的humans[j*n+num]，j指你的势力标号，n指总势力个数
+
+	string debugMsg;
+	void debug(string msg);		   //设置debug信息，会覆盖本帧之前设置的信息
+	void debugAppend(string amsg); //追加debug信息，不会覆盖之前的信息
+	//每帧将重置debug信息，每帧的debug信息不能超过1024字节，如果需要加长信息，请修改main.cpp(但不建议过长，否则可能导致通信中断)。
 
 	bool isWall(int x, int y);
 
