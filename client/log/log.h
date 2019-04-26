@@ -11,6 +11,11 @@
 	#include <unistd.h>
 #endif
 
+//定义函数宏
+#define _info(format, ...) info(YFL,format,__VA_ARGS__)
+#define _warn(format, ...) warn(YFL,format,__VA_ARGS__)
+#define _error(format, ...) error(YFL,format,__VA_ARGS__)
+
 #include <stdarg.h>
 #include <time.h>
 #include <string.h>
