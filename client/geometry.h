@@ -20,10 +20,6 @@ struct Point {
 	Point(double a, double b) { x = a; y = b; }
 };
 
-Point operator+(const Point &A, const Point &B);
-
-Point operator-(const Point &A, const Point &B);
-
 //两点式
 struct Lineseg {
 	Point s;
@@ -48,6 +44,14 @@ struct Line {         // 直线的解析方程 a*x+b*y+c=0  为统一表示，�
 *   点的基本运算     *
 *                    *
 **********************/
+Point operator+(const Point &A, const Point &B);
+
+Point operator-(const Point &A, const Point &B);
+
+bool operator==(const Point &A, const Point &B);
+
+bool operator!=(const Point &A, const Point &B);
+
 
 // 返回两点之间欧氏距离 
 double dist(Point p1, Point p2); 

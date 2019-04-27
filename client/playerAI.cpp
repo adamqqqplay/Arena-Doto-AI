@@ -5,9 +5,21 @@
 #include <ctime>
 #include <math.h>
 #include "log/log.h"
+#include <sys/time.h>
+#include <map>
 using namespace std;
 
 Logic *logic;
+Log mylog = Log(LOG_INFO);
+
+//获取毫秒时间戳
+int getCurrentTimeStamp()
+{
+	struct timeval tp;
+	gettimeofday(&tp, NULL);
+	int ms = tp.tv_sec * 1000 + tp.tv_usec / 1000;
+	return ms;
+}
 
 //根据队伍和英雄编号获取真实ID
 int node_translate(int faction, int num)
@@ -151,6 +163,8 @@ int pathPointsDistance[100][320][320];
 #define mp(a, b) make_pair((a), (b))
 void searchDistance(Point v, int dis1[320][320])
 {
+	long int startTimeStamp = getCurrentTimeStamp();
+
 	if (isPointValid(v) == false)
 	{
 		return;
@@ -166,9 +180,10 @@ void searchDistance(Point v, int dis1[320][320])
 	}
 	Q.push(mp((int)v.x, (int)v.y)); //将目标点放入队列
 	dis1[(int)v.x][(int)v.y] = 0;   //将目标点的距离设置为0
-	while (!Q.empty())				//非空队列
+	pair<int, int> st;
+	while (!Q.empty()) //非空队列
 	{
-		pair<int, int> st = Q.front();	 //获取队列中的第一个点
+		st = Q.front();					   //获取队列中的第一个点
 		Q.pop();						   //弹出该点
 		int D = dis1[st.first][st.second]; //大D为此点的距离
 		for (int direct = 0; direct < 4; direct++)
@@ -191,42 +206,33 @@ void searchDistance(Point v, int dis1[320][320])
 			}
 		}
 	}
+
+	mylog.write(YFL, LOG_INFO, "search point:(%f,%f)", v.x, v.y);
+	long int endTimeStamp = getCurrentTimeStamp();
+	mylog.write(YFL, LOG_INFO, "	costTime:%ldms", endTimeStamp - startTimeStamp);
 	//当遍历完之后，离目标点越近的点dis越小
 }
 
-//使用缓存的自动寻路系统
-void move_stupid_new(int num, Point v)
+int getCachedPointIndex(Point v, int num)
 {
-	Point myPosition = GetUnit(num).position;
 	int pointIndex;
 	for (int i = 0; i < 100; i++)
 	{
 		Point point = pathPoints[i];
-		if (equal_Point(point, v)) //判断点的路径是否已被缓存
+		if (point == v) //判断点的路径是否已被缓存
 		{
-			pointIndex = i;
-		}
-		else
-		{
-			pointIndex = 5 + num;
-			if (!equal_Point(pathPoints[pointIndex], v))
-			{
-				pathPoints[pointIndex] = v;
-				searchDistance(pathPoints[pointIndex], pathPointsDistance[pointIndex]); //对没有缓存的点搜索
-			}
+			return i;
 		}
 	}
+	pointIndex = 5 + num;
+	pathPoints[pointIndex] = v;
+	searchDistance(pathPoints[pointIndex], pathPointsDistance[pointIndex]); //对没有缓存的点搜索
+	return pointIndex;
+}
 
-	int dis[320][320];
-	queue<pair<int, int>> Q;
-	for (int i = 0; i < 320; i++)
-	{
-		for (int j = 0; j < 320; j++)
-		{
-			dis[i][j] = pathPointsDistance[pointIndex][i][j];
-		}
-	}
-
+void moveTo(int dis1[320][320], int num, Point targetLocation)
+{
+	Point myPosition = GetUnit(num).position;
 	int px = myPosition.x, py = myPosition.y;
 	int base = rand() % 4;
 	Point dv[4] = {Point(1, 0), Point(0, 1), Point(-1, 0), Point(0, -1)};
@@ -237,32 +243,54 @@ void move_stupid_new(int num, Point v)
 		{
 			Point tempPoint = myPosition + dv[i];
 			int tpx = tempPoint.x, tpy = tempPoint.y;
-			tempDis[i] = dis[tpx][tpy];
+			tempDis[i] = dis1[tpx][tpy];
 		}
 		for (int i = 0; i < 4; i++)
 		{
-			if (tempDis[i] < dis[px][py] && tempDis[i] == tempDis[(i + 1) % 4])
+			if (tempDis[i] < dis1[px][py] && tempDis[i] == tempDis[(i + 1) % 4])
 			{
-				move_s(num, v);
+				move_s(num, targetLocation);
 				return;
 			}
 		}
 	}
 
+	int minDistance = 99999;
+	int minDirect = 0;
 	for (int i = 0; i < 4; i++)
 	{
 		int direct = (i + base) % 4;
 		int dx = dv[direct].x, dy = dv[direct].y;
 		int x = px + dx; //(x,y)为单位的周围四个点
 		int y = py + dy;
-		if (dis[x][y] < dis[px][py]) //当新点的距离比现在的点距离小时进行相对移动
+		if (dis1[x][y] < minDistance && dis1[x][y] < dis1[px][py] && dis1[x][y] != -1) //当新点的距离比现在的点距离小时进行相对移动
 		{
-			if (dis[px + dx * 2][py + dy * 2] < dis[x][y]) //当现在的点位移2格之后比新点距离小时
-				dx *= 2, dy *= 2;
-			move_relative(num, Point(dx, dy));
-			return;
+			minDirect = direct;
+			minDistance = dis1[x][y];
 		}
 	}
+
+	Point dv2[4] = {Point(1, 0), Point(0, 1), Point(-1, 0), Point(0, -1)};
+	// mylog.write(YFL, LOG_TRACE, "	minDirect is%d", minDirect);
+	// mylog.write(YFL, LOG_TRACE, "	minDirectPoint is%lf,%lf", dv2[minDirect].x, dv2[minDirect].y);
+	move_s(num, myPosition + dv2[minDirect]);
+}
+
+//使用缓存的自动寻路系统
+void move_stupid_new(int num, Point targetLocation)
+{
+	int pointIndex = getCachedPointIndex(targetLocation, num);
+	int dis[320][320], distest[320][320];
+	for (int i = 0; i < 320; i++)
+	{
+		for (int j = 0; j < 320; j++)
+		{
+			dis[i][j] = pathPointsDistance[pointIndex][i][j];
+			distest[i][j] = -1;
+		}
+	}
+	moveTo(dis, num, targetLocation);
+	return;
 }
 
 //随机浮点数
@@ -325,6 +353,112 @@ Point getNearbyRandomLocation(Point v, double distance)
 	return rotate(v, deg2rad(randomDeg), Point(v.x, v.y + distance));
 }
 
+deque<Point> enemyHistoryLocation[5];
+void recordHistroyLocation()
+{
+	for (int i = 0; i < 5; i++)
+	{
+		Human enemy = GetEnemyUnit(i);
+		if (enemy.hp < 0)
+		{
+			enemyHistoryLocation[i].resize(0);
+		}
+		else
+		{
+			if (enemyHistoryLocation[i].size() > 100)
+			{
+				enemyHistoryLocation[i].pop_back();
+			}
+			enemyHistoryLocation[i].push_front(enemy.position);
+		}
+	}
+	return;
+}
+
+void setDefaultTargetLocation(Point dest[])
+{
+	dest[0] = logic->crystal[logic->faction].position;				 //我方水晶
+	dest[1] = logic->map.bonus_places[0];							 //赏金符点0
+	dest[2] = logic->map.bonus_places[1];							 //赏金符点1
+	dest[3] = dest[4] = logic->crystal[logic->faction ^ 1].position; //前往敌方水晶
+	if (~logic->crystal[logic->faction ^ 1].belong)
+	{
+		dest[3] = dest[4] = logic->map.target_places[logic->faction]; //将水晶送回家
+	}
+
+	for (int i = 0; i < 5; i++)
+	{
+		Point myPosition = GetUnit(i).position;
+		Point birthPosition = logic->map.birth_places[logic->faction][i];
+		double distance;
+		if (logic->faction == 0)
+		{
+			distance = 35;
+		}
+		else
+		{
+			distance = 25;
+		}
+
+		if (dist(myPosition, birthPosition) < distance)
+		{
+			dest[i] = logic->map.target_places[logic->faction];
+		}
+	}
+}
+
+
+double getExtrapolatedSpeed(int heroIndex)
+{
+	if (enemyHistoryLocation[heroIndex].size() < 100)
+	{
+		mylog.write(YFL, LOG_TRACE, "extrapolatedSpeed[%d] is %lf", heroIndex, CONST::human_velocity * CONST::frames_per_second);
+		return CONST::human_velocity * CONST::frames_per_second;
+	}
+	Human hero = GetEnemyUnit(heroIndex);
+	Point nowLocation = hero.position;
+	Point historyLocation = enemyHistoryLocation[heroIndex][40];
+	double speed = dist(nowLocation, historyLocation) / 40 * CONST::frames_per_second;
+	mylog.write(YFL, LOG_TRACE, "extrapolatedSpeed[%d] is %lf", heroIndex, speed);
+	return speed;
+}
+
+Point getExtrapolatedLocation(int heroIndex, double time)
+{
+	int frame = time * 20;
+	if (frame > 100)
+	{
+		frame = 100;
+	}
+
+	Human hero = GetEnemyUnit(heroIndex);
+	Point nowLocation = hero.position;
+
+	if (enemyHistoryLocation[heroIndex].size() < 100)
+	{
+		mylog.write(YFL, LOG_TRACE, "futureLocation[%d] is (%lf,%lf)", heroIndex, nowLocation.x, nowLocation.y);
+		return nowLocation;
+	}
+
+	Point historyLocation = enemyHistoryLocation[heroIndex][40];
+	mylog.write(YFL, LOG_TRACE, "historyLocation[%d] is (%lf,%lf)", heroIndex, historyLocation.x, historyLocation.y);
+	double x = nowLocation.x + (nowLocation.x - historyLocation.x) / 40 * frame;
+	double y = nowLocation.y + (nowLocation.y - historyLocation.y) / 40 * frame;
+	Point futureLocation = Point(x, y);
+	mylog.write(YFL, LOG_TRACE, "futureLocation[%d] is (%lf,%lf)", heroIndex, x, y);
+	return futureLocation;
+}
+
+bool hasFlash(int heroIndex, int frame)
+{
+	Human enemy = GetEnemyUnit(heroIndex);
+	if (enemy.flash_time > frame)
+	{
+		return false;
+	}
+	return true;
+}
+
 vector<Point> highLevelPoints(5, Point(-1, -1));
 vector<double> highLevelTimer(5, -1);
 Point fixedCrystalPosition[2], fixedTargetPosition[2];
@@ -361,12 +495,12 @@ void initPoints()
 //当常用点的位置发生变化时，重新搜索一次
 void recheckPoints()
 {
-	if (!equal_Point(pathPoints[0], logic->crystal[logic->faction].position))
+	if (pathPoints[0] != logic->crystal[logic->faction].position)
 	{
 		pathPoints[0] = logic->crystal[logic->faction].position;
 		searchDistance(pathPoints[0], pathPointsDistance[0]);
 	}
-	if (!equal_Point(pathPoints[3], logic->crystal[logic->faction ^ 1].position))
+	if (pathPoints[3] != logic->crystal[logic->faction ^ 1].position)
 	{
 		pathPoints[3] = logic->crystal[logic->faction ^ 1].position;
 		searchDistance(pathPoints[3], pathPointsDistance[3]);
@@ -402,7 +536,7 @@ void getTargetByPath(Point dest[])
 		Point myPostion = GetUnit(i).position;
 		if (areWeGetCrystal() == false)
 		{
-			if (equal_Point(logic->crystal[logic->faction ^ 1].position, logic->map.crystal_places[logic->faction ^ 1]))
+			if (logic->crystal[logic->faction ^ 1].position == logic->map.crystal_places[logic->faction ^ 1])
 			{
 				if (dist(myPostion, fixedCrystalPosition[logic->faction ^ 1]) > 15)
 				{
@@ -465,21 +599,34 @@ void attackAndCast()
 	for (int i = 0; i < 5; i++)
 	{
 		Point myPostion = GetUnit(i).position;
-		Point targ = logic->map.birth_places[logic->faction ^ 1][0]; //敌方出生点
+		Point targetPoint = logic->map.birth_places[logic->faction ^ 1][0]; //敌方出生点
+		int targetHeroIndex = 0;
 		for (int j = 0; j < 5; j++)
 		{
 			Human unit = GetEnemyUnit(j);
 			if (unit.hp <= 0)
 				continue;
-			if (dist(unit.position, myPostion) < dist(targ, myPostion))
-				targ = unit.position; //寻找最近的敌方单位
+			if (dist(unit.position, myPostion) < dist(targetPoint, myPostion))
+			{
+				targetPoint = unit.position; //寻找最近的敌方单位
+				targetHeroIndex = j;
+			}
 		}
-		double D = dist(targ, myPostion) * 0.1;
-		logic->shoot(i, Point(targ.x, targ.y)); //使用火球
+		double D = dist(targetPoint, myPostion) * 0.1;
 
-		if (dist(Point(targ.x, targ.y), myPostion) <= CONST::meteor_distance - 5)
+		Human enemy = GetEnemyUnit(targetHeroIndex);
+		Point enemyLocation = enemy.position;
+
+		double targetSpeed = getExtrapolatedSpeed(targetHeroIndex);
+		double trackFlyTime = dist(myPostion, enemyLocation) / (CONST::fireball_velocity * CONST::frames_per_second);
+		Point shootPoint = getExtrapolatedLocation(targetHeroIndex, trackFlyTime);
+
+		logic->shoot(i, targetPoint); //使用火球
+
+		Point meteorPoint = getExtrapolatedLocation(targetHeroIndex, 2);
+		if (dist(meteorPoint, myPostion) <= CONST::meteor_distance && hasFlash(targetHeroIndex, CONST::meteor_delay) == false)
 		{
-			logic->meteor(i, Point(targ.x + RandDouble(-1, 1), targ.y + RandDouble(-1, 1))); //使用陨石
+			logic->meteor(i, meteorPoint); //使用陨石
 		}
 	}
 	return;
@@ -564,7 +711,12 @@ void randomDest(Point dest[])
 void playerAI()
 {
 	logic = Logic::Instance(); //获取实例
-	if (logic->frame == 1)	 //第一帧初始化种子
+
+	int frame = logic->frame;
+	mylog.write(YFL, LOG_INFO, "frame:%d", frame);
+	int startTimeStamp = getCurrentTimeStamp();
+
+	if (logic->frame == 1) //第一帧初始化种子
 	{
 		srand(time(NULL));
 		initPoints();
@@ -573,14 +725,26 @@ void playerAI()
 	recheckPoints();
 
 	Point dest[5];
-	dest[0] = logic->crystal[logic->faction].position; //我方水晶
-	dest[1] = logic->map.bonus_places[0];			   //赏金符点0
-	dest[2] = logic->map.bonus_places[1];			   //赏金符点1
+
+	setDefaultTargetLocation(dest);
+	for (int i = 0; i < 5; i++)
+	{
+		move_s(i, dest[i]);
+	}
+
+	recordHistroyLocation();
 
 	attackAndCast();
 	getTargetByPath(dest);
 	//randomDest(dest);
 	avoidAttack(dest);
 	executeMove(dest);
+
+	long int endTimeStamp = getCurrentTimeStamp();
+	mylog.write(YFL, LOG_INFO, "costTime:%ldms", endTimeStamp - startTimeStamp);
+	if (endTimeStamp - startTimeStamp > 50)
+	{
+		mylog.write(YFL, LOG_WARNING, "long frame detected");
+	}
 	return;
 }
