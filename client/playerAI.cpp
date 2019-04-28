@@ -293,6 +293,278 @@ void move_stupid_new(int num, Point targetLocation)
 	return;
 }
 
+//// 新贪婪寻路系统
+deque<Point> path[5];
+Point pathPointsNew[5];
+
+struct PointBox
+{
+	double x;
+	double y;
+	double distance;
+	PointBox(){};
+	PointBox(double a, double b, double d)
+	{
+		x = a;
+		y = b;
+		distance = d;
+	}
+};
+
+bool comp(const PointBox &a, const PointBox &b)
+{
+	return a.distance < b.distance;
+}
+
+//贪婪寻路 最好不要创建对象
+void quickSearchDistance(Point goal, int dis1[320][320], Point myLocation)
+{
+	long int startTimeStamp = getCurrentTimeStamp();
+	mylog.write(YFL, LOG_INFO, "quick search point:(%f,%f)", goal.x, goal.y);
+
+	if (isPointValid(goal) == false)
+	{
+		return;
+	}
+
+	queue<pair<int, int>> Q;
+	for (int i = 0; i < 320; i++)
+	{
+		for (int j = 0; j < 320; j++)
+		{
+			dis1[i][j] = -1;
+		}
+	}
+
+	pair<int, int> st;
+	vector<PointBox> tempPoint;
+	Q.push(mp((int)goal.x, (int)goal.y)); //将目标点放入队列
+	dis1[(int)goal.x][(int)goal.y] = 0;   //将目标点的距离设置为0
+	Point dv[4] = {Point(1, 0), Point(0, 1), Point(-1, 0), Point(0, -1)};
+
+	int count = 0;
+	while (!Q.empty()) //非空队列
+	{
+		st = Q.front(); //获取队列中的第一个点
+		Q.pop();		//弹出该点
+		int stx = st.first;
+		int sty = st.second;
+		int D = dis1[stx][sty]; //大D为此点的距离
+
+		if (dist(Point(stx, sty), myLocation) < 1)
+		{
+			break;
+		}
+
+		for (int direct = 0; direct < 4; direct++)
+		{
+			int dx = 0, dy = 0;
+			int x = dv[direct].x + stx; //(x,y)为该点的周围四个点
+			int y = dv[direct].y + sty;
+			if (!isWall(x, y) && dis1[x][y] == -1) //当这个周围的点不是墙，并且该点没有被遍历过
+			{
+				double distance = dist(Point(x, y), myLocation);
+				PointBox pb;
+				pb.x = x;
+				pb.y = y;
+				pb.distance = distance;
+				tempPoint.push_back(pb);
+				dis1[x][y] = D + 1; //那么距离+1
+			}
+		}
+		sort(tempPoint.begin(), tempPoint.end(), comp);
+		for (int i = 0; i < tempPoint.size(); i++)
+		{
+			Q.push(mp(tempPoint[i].x, tempPoint[i].y)); //同时将新点放入队列
+		}
+		tempPoint.clear();
+		count++;
+	}
+
+	long int endTimeStamp = getCurrentTimeStamp();
+	mylog.write(YFL, LOG_INFO, "	costTime:%ldms,count:%d", endTimeStamp - startTimeStamp, count);
+	//当遍历完之后，离目标点越近的点dis越小
+}
+
+struct PriorityPoints
+{
+	Point point;
+	double priority;
+	PriorityPoints(){};
+	~PriorityPoints(){};
+	PriorityPoints(Point po, double pri)
+	{
+		point = po;
+		priority = pri;
+	}
+	friend bool operator<(PriorityPoints a, PriorityPoints b)
+	{
+		return a.priority > b.priority; //结构体中，priority小的优先级高
+	}
+};
+
+int heuristic(Point a, Point b)
+{
+	return abs(a.x - b.x) + abs(a.y - b.y);
+}
+
+int pointToIndex(int x, int y)
+{
+	return 100 * x + y;
+}
+
+int pointToIndex(Point p)
+{
+	int px = floor(p.x);
+	int py = floor(p.y);
+	return 100 * px + py;
+}
+
+void indexToPoint(int index, int result[2])
+{
+	int y = index % 100;
+	int x = index - y;
+	result[0] = x;
+	result[1] = y;
+}
+
+void greedSearch(Point start, Point goal, deque<Point> *path)
+{
+	while (!(*path).empty())
+	{
+		(*path).pop_front();
+	}
+	Point trueGoal = goal;
+	start.x = floor(start.x);
+	start.y = floor(start.y);
+	goal.x = floor(goal.x);
+	goal.y = floor(goal.y);
+	int startTimeStamp = getCurrentTimeStamp();
+	mylog.write(YFL, LOG_INFO, "greedSearch start(%lf,%lf),point:(%lf,%lf)", start.x, start.y, goal.x, goal.y);
+
+	priority_queue<PriorityPoints> frontier;
+	frontier.push(PriorityPoints(start, 0));
+
+	map<int, Point> came_from;
+	map<int, int> visited;
+
+	came_from.insert({pointToIndex(start), Point(-1, -1)});
+
+	Point dv[4] = {Point(1, 0), Point(0, 1), Point(-1, 0), Point(0, -1)};
+
+	int count = 0;
+	Point current, next;
+	while (!frontier.empty())
+	{
+		current = frontier.top().point;
+		frontier.pop();
+		//mylog.write(YFL, LOG_INFO, "current:%f,%f,goal:%f,%f,dist:%f", current.x, current.y, goal.x, goal.y, dist(current, goal));
+		if (dist(current, goal) < 1 or count >= 1000)
+		{
+			break;
+		}
+
+		for (int i = 0; i < 4; i++)
+		{
+			next = current + dv[i];
+			bool notInVisited = visited[pointToIndex(next)] == 0;
+			bool isPointPass = !isWallNearyBy(next);
+			if (notInVisited and isPointPass)
+			{
+				int priority = dist(goal, next);
+				frontier.push(PriorityPoints(next, priority));
+				came_from.insert({pointToIndex(next), current});
+				visited[pointToIndex(next)] = 1;
+			}
+		}
+		count++;
+	}
+
+	int count2 = 0;
+	current = goal;
+	(*path).push_front(trueGoal);
+	Point before;
+	while (dist(current, start) > 1 and count2 < count)
+	{
+		before = came_from[pointToIndex(current)];
+		(*path).push_front(current);
+		//path = current;
+		current = before;
+		count2++;
+	}
+
+	int endTimeStamp = getCurrentTimeStamp();
+
+	mylog.write(YFL, LOG_INFO, "	costTime:%dms,count:%d,count2:%d", endTimeStamp - startTimeStamp, count, count2);
+
+	return;
+}
+
+//近距离快速寻路系统
+void move_quick(int num, Point targetLocation)
+{
+	int dis[320][320];
+	quickSearchDistance(targetLocation, dis, GetUnit(num).position);
+	moveTo(dis, num, targetLocation);
+	return;
+}
+
+//测试寻路
+void move_greed(int num, Point targetLocation)
+{
+	Point start = GetUnit(num).position;
+	Point goal = targetLocation;
+	mylog.write(YFL, LOG_INFO, "move_greed:num:%d,start:%lf,%lf goal:%lf,%lf", num, start.x, start.y, goal.x, goal.y);
+	if (start != goal)
+	{
+		if (goal != pathPointsNew[num] or path[num].empty()) //判断该点是否已求过路径
+		{
+			pathPointsNew[num] = goal;
+			greedSearch(start, goal, &path[num]);
+		}
+
+		// int size = path[num].size(), nearByPointIndex;
+		// for (int i = 0; i < size; i++)
+		// {
+		// 	if (dist(start, path[num][i]) <= 0.5)
+		// 	{
+		// 		nearByPointIndex = i;
+		// 		break;
+		// 	}
+		// }
+		// for (int i = 0; i <= nearByPointIndex; i++)
+		// {
+		// 	if (!path[num].empty())
+		// 	{
+		// 		path[num].pop_front();
+		// 	}
+		// }
+
+		Point target = path[num].front();
+
+		if (dist(start, target) <= 0.5)
+		{
+			path[num].pop_front();
+			target = path[num].front();
+		}
+
+		move_s(num, target);
+
+		int size1 = path[num].size();
+		for (int i = 0; i < size1; i++)
+		{
+			if (dist(start, path[num][i]) >= CONST::flash_distance and canflash(num))
+			{
+				flash_s(num, path[num][i]);
+				pathPointsNew[num] = Point(-1, -1);
+				break;
+			}
+		}
+		mylog.write(YFL, LOG_INFO, "	from %lf,%lf,move to %lf,%lf  path size:%d dist:%lf", start.x, start.y, target.x, target.y, path[num].size(), dist(start, target));
+	}
+}
+////
+
 //随机浮点数
 double RandDouble() { return rand() / (double)RAND_MAX; }
 //指定范围的随机浮点数
@@ -406,7 +678,6 @@ void setDefaultTargetLocation(Point dest[])
 		}
 	}
 }
-
 
 double getExtrapolatedSpeed(int heroIndex)
 {
@@ -573,8 +844,6 @@ void getTargetByPath(Point dest[])
 			continue;
 		}
 
-		bool flag1, flag2;
-
 		if (dist(myCrystal, myPostion) < dist(myCrystal, pathPoints[10]) - 2) //过去
 		{
 			if (dist(myCrystal, pathPoints[10]) <= dist(myCrystal, dest[i]))
@@ -685,11 +954,12 @@ void executeMove(Point dest[])
 			finalDest = highLevelPoints[i];
 		}
 
-		move_stupid_new(i, finalDest); //先寻路，再闪现
-		if (dist(myPostion, finalDest) > CONST::flash_distance / 2)
-		{
-			flash_s(i, finalDest);
-		}
+		// move_stupid_new(i, finalDest); //先寻路，再闪现
+		// if (dist(myPostion, finalDest) > CONST::flash_distance / 2)
+		// {
+		// 	flash_s(i, finalDest);
+		// }
+		move_greed(i, finalDest); 
 	}
 	return;
 }
@@ -720,9 +990,9 @@ void playerAI()
 	{
 		srand(time(NULL));
 		initPoints();
-		initSearch();
+		//initSearch();
 	}
-	recheckPoints();
+	//recheckPoints();
 
 	Point dest[5];
 

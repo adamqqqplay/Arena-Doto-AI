@@ -16,7 +16,8 @@ using namespace std;
 //点
 struct Point {
 	double x, y;
-	Point() {};
+	Point() {}
+	~Point() {}
 	Point(double a, double b) { x = a; y = b; }
 };
 
@@ -24,8 +25,9 @@ struct Point {
 struct Lineseg {
 	Point s;
 	Point e;
+	Lineseg() {}
+	~Lineseg() {}
 	Lineseg(Point a, Point b) { s = a; e = b; }
-	Lineseg() { }
 };
 
 //一般式
@@ -33,6 +35,7 @@ struct Line {         // 直线的解析方程 a*x+b*y+c=0  为统一表示，�
 	double a;
 	double b;
 	double c;
+	~Line(){}
 	Line(double d1 = 1, double d2 = -1, double d3 = 0) { a = d1; b = d2; c = d3; }
 };
 
