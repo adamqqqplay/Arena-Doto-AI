@@ -83,6 +83,37 @@ bool isWallNearyBy(Point v)
 	}
 	return false;
 }
+
+int getTeam()
+{
+	return logic->faction;
+}
+
+int getEnemyTeam()
+{
+	return logic->faction ^ 1;
+}
+
+Point getOurCrystalDefaultLocation()
+{
+	return logic->map.crystal_places[getTeam()];
+}
+
+Point getEnemyCrystalDefaultLocation()
+{
+	return logic->map.crystal_places[getEnemyTeam()];
+}
+
+Point getOurCrystalLocation()
+{
+	return logic->crystal[getTeam()].position;
+}
+
+Point getEnemyCrystalLocation()
+{
+	return logic->crystal[getEnemyTeam()].position;
+}
+
 //使指定单位朝目标点移动
 void move(int num, Point v)
 {
@@ -461,6 +492,10 @@ void greedSearch(Point start, Point goal, deque<Point> *path)
 		//mylog.write(YFL, LOG_INFO, "current:%f,%f,goal:%f,%f,dist:%f", current.x, current.y, goal.x, goal.y, dist(current, goal));
 		if (dist(current, goal) < 1 or count >= 1000)
 		{
+			if (count >= 1000)
+			{
+				mylog._warn("	search failed for point (%lf,%lf)", trueGoal.x, trueGoal.y);
+			}
 			break;
 		}
 
@@ -553,7 +588,7 @@ void move_greed(int num, Point targetLocation)
 		int size1 = path[num].size();
 		for (int i = 0; i < size1; i++)
 		{
-			if (dist(start, path[num][i]) >= CONST::flash_distance and canflash(num))
+			if (dist(start, path[num][i]) >= CONST::flash_distance and canflash(num) and !isWall(path[num][i]))
 			{
 				flash_s(num, path[num][i]);
 				pathPointsNew[num] = Point(-1, -1);
@@ -561,6 +596,12 @@ void move_greed(int num, Point targetLocation)
 			}
 		}
 		mylog.write(YFL, LOG_INFO, "	from %lf,%lf,move to %lf,%lf  path size:%d dist:%lf", start.x, start.y, target.x, target.y, path[num].size(), dist(start, target));
+
+		double distance = dist(start, target);
+		if (distance > 10)
+		{
+			mylog._warn("	too long distance to nearby point %lf", distance);
+		}
 	}
 }
 ////
@@ -792,11 +833,88 @@ bool areWeGetCrystal()
 	}
 }
 
+//获取敌方水晶所属单位
+int getEnemyCrystalBelonging()
+{
+	for (int i = 0; i < 5; i++)
+	{
+		if (logic->crystal[logic->faction ^ 1].belong == node_translate(logic->faction, i))
+		{
+			return i;
+		}
+	}
+	return -1;
+}
+
+//获取离该点最近的友方单位
+int getNearestUnitToCrystal()
+{
+	Point point = logic->map.crystal_places[logic->faction ^ 1];
+	int unitIndex = 0;
+	double minDistance = 999;
+	for (int i = 0; i < 5; i++)
+	{
+		if (i == 1 or i == 2 or GetUnit(i).hp <= 0)
+		{
+			continue;
+		}
+		Point myPostion = GetUnit(i).position;
+		double distance = dist(myPostion, point);
+		if (distance < minDistance)
+		{
+			minDistance = distance;
+			unitIndex = i;
+		}
+	}
+	return unitIndex;
+}
+
+queue<Point> movePathQueue[5];
+bool pastAttackState; //0==进攻 1==返回
+void setMovePathQueue(queue<Point> *Q)
+{
+	vector<Point> crystalAttackPath = {getOurCrystalDefaultLocation(), fixedTargetPosition[getTeam()], pathPoints[10], fixedTargetPosition[getEnemyTeam()], getEnemyCrystalDefaultLocation()};
+
+	if (areWeGetCrystal())
+	{
+		reverse(crystalAttackPath.begin(), crystalAttackPath.end());
+	}
+
+	int size = crystalAttackPath.size();
+	for (int i = 0; i < size; i++)
+	{
+		Q->push(crystalAttackPath[i]);
+	}
+}
+
+int secondLeaderIndex = -1;
 //通过路径点寻路
 void getTargetByPath(Point dest[])
 {
-	Point myCrystal = logic->map.crystal_places[logic->faction];
-	Point enemyCrystal = logic->map.crystal_places[logic->faction ^ 1];
+	Point myCrystal = getOurCrystalDefaultLocation();
+	Point enemyCrystal = getEnemyCrystalDefaultLocation();
+	// for (int i = 0; i < 5; i++)
+	// {
+	// 	Point myLocation = GetUnit(i).position;
+
+	// 	if (i == 1 || i == 2)
+	// 	{
+	// 		continue;
+	// 	}
+
+	// 	if (pastAttackState != areWeGetCrystal() or movePathQueue[i].empty())
+	// 	{
+	// 		setMovePathQueue(&movePathQueue[i]);
+	// 		pastAttackState = areWeGetCrystal();
+	// 	}
+
+	// 	if (dist(myLocation, movePathQueue[i].front()) < 2)
+	// 	{
+	// 		movePathQueue[i].pop();
+	// 	}
+	// 	dest[i] = movePathQueue[i].front();
+	// }
+
 	for (int i = 0; i < 5; i++)
 	{
 		if (i == 1 || i == 2)
@@ -859,6 +977,102 @@ void getTargetByPath(Point dest[])
 			}
 		}
 	}
+
+	int enemyCrystalBelonging = getEnemyCrystalBelonging();
+	int nearestUnitToCrystal = getNearestUnitToCrystal();
+	int headUnitIndex = 0;
+	if (enemyCrystalBelonging != -1)
+	{
+		headUnitIndex = enemyCrystalBelonging;
+	}
+	else
+	{
+		headUnitIndex = nearestUnitToCrystal;
+	}
+
+	deque<int> unitQueue;
+	for (int i = 0; i < 5; i++)
+	{
+		Point myPostion = GetUnit(i).position;
+		if (i == 1 or i == 2 or i == headUnitIndex)
+		{
+			continue;
+		}
+		unitQueue.push_front(i);
+	}
+
+	Point fixVector[2];
+	Point basePoint;
+	int angle = 0;
+	if (areWeGetCrystal() == false)
+	{
+		basePoint = GetUnit(headUnitIndex).position;
+		angle = 180;
+	}
+	else
+	{
+		basePoint = getEnemyCrystalLocation();
+	}
+
+	int highestHp = 0;
+	int highestHpUnit;
+
+	fixVector[0] = getNearbyVector(deg2rad(15 + getTeam() * 180 + angle), 8);
+	fixVector[1] = getNearbyVector(deg2rad(75 + getTeam() * 180 + angle), 8);
+	int size = unitQueue.size();
+	for (int i = 0; i < size; i++)
+	{
+		int unitIndex = unitQueue[i];
+		Human unit = GetUnit(unitIndex);
+		if (unit.hp > highestHp)
+		{
+			highestHp = unit.hp;
+			highestHpUnit = unitIndex;
+		}
+
+		//unitQueue.pop();
+		Point newPoint = basePoint + fixVector[i];
+		if (isWall(newPoint) == false)
+		{
+			dest[unitIndex] = newPoint;
+		}
+	}
+
+	if (GetUnit(secondLeaderIndex).hp <= 0)
+	{
+		secondLeaderIndex = -1;
+	}
+
+	bool secondBackPeriod = dist(getEnemyCrystalLocation(), getOurCrystalDefaultLocation()) < dist(pathPoints[10], getOurCrystalDefaultLocation()) - 25;
+	if (secondBackPeriod and areWeGetCrystal())
+	{
+		if (secondLeaderIndex == -1)
+		{
+			secondLeaderIndex = highestHpUnit;
+		}
+		else
+		{
+			int size = unitQueue.size();
+			for (int i = 0; i < size; i++)
+			{
+				if (i == 0)
+				{
+					int unitIndex = unitQueue[i];
+					dest[unitIndex] = getEnemyCrystalDefaultLocation();
+				}
+				else
+				{
+					int unitIndex = unitQueue[i];
+					dest[unitIndex] = GetUnit(unitQueue[0]).position + fixVector[0];
+				}
+			}
+		}
+	}
+	else
+	{
+		secondLeaderIndex = -1;
+	}
+
 	return;
 }
 
@@ -959,7 +1173,7 @@ void executeMove(Point dest[])
 		// {
 		// 	flash_s(i, finalDest);
 		// }
-		move_greed(i, finalDest); 
+		move_greed(i, finalDest);
 	}
 	return;
 }
