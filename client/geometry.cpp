@@ -15,6 +15,16 @@ Point operator-(const Point &A, const Point &B)
 	return Point(A.x - B.x, A.y - B.y);
 }
 
+Point operator*(const Point &A, const double &B)
+{
+	return Point(A.x * B, A.y * B);
+}
+
+Point operator/(const Point &A, const double &B)
+{
+	return Point(A.x / B, A.y / B);
+}
+
 bool operator==(const Point &A, const Point &B)
 {
 	if (sqrt((A.x - B.x) * (A.x - B.x) + (A.y - B.y) * (A.y - B.y)) < 0.001)
@@ -383,6 +393,15 @@ bool intersection(Lineseg l1, Lineseg l2, Point &inter)
 		return false;
 }
 
+//判断直线是否重合
+bool equalLine(Line l1,Line l2)
+{
+	if(l1.a/l2.a==l1.b/l2.b and l1.b/l2.b==l1.c/l2.c)
+	{
+		return true;
+	}
+	return false;
+}
 /*************************\
 *						 *
 * 圆的基本运算           *

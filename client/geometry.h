@@ -51,6 +51,10 @@ Point operator+(const Point &A, const Point &B);
 
 Point operator-(const Point &A, const Point &B);
 
+Point operator*(const Point &A, const double &B);
+
+Point operator/(const Point &A, const double &B);
+
 bool operator==(const Point &A, const Point &B);
 
 bool operator!=(const Point &A, const Point &B);
@@ -201,6 +205,8 @@ bool Lineintersect(Line l1, Line l2, Point &p);
 // 如果线段l1和l2相交，返回true且交点由(inter)返回，否则返回false 
 bool intersection(Lineseg l1, Lineseg l2, Point &inter);
 
+//判断直线是否重合
+bool equalLine(Line l1,Line l2);
 /*************************\
 *						 *
 * 圆的基本运算           *
