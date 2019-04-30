@@ -16,20 +16,18 @@ using namespace std;
 //点
 struct Point {
 	double x, y;
-	Point() {};
+	Point() {}
+	~Point() {}
 	Point(double a, double b) { x = a; y = b; }
 };
-
-Point operator+(const Point &A, const Point &B);
-
-Point operator-(const Point &A, const Point &B);
 
 //两点式
 struct Lineseg {
 	Point s;
 	Point e;
+	Lineseg() {}
+	~Lineseg() {}
 	Lineseg(Point a, Point b) { s = a; e = b; }
-	Lineseg() { }
 };
 
 //一般式
@@ -37,6 +35,7 @@ struct Line {         // 直线的解析方程 a*x+b*y+c=0  为统一表示，�
 	double a;
 	double b;
 	double c;
+	~Line(){}
 	Line(double d1 = 1, double d2 = -1, double d3 = 0) { a = d1; b = d2; c = d3; }
 };
 
@@ -48,6 +47,18 @@ struct Line {         // 直线的解析方程 a*x+b*y+c=0  为统一表示，�
 *   点的基本运算     *
 *                    *
 **********************/
+Point operator+(const Point &A, const Point &B);
+
+Point operator-(const Point &A, const Point &B);
+
+Point operator*(const Point &A, const double &B);
+
+Point operator/(const Point &A, const double &B);
+
+bool operator==(const Point &A, const Point &B);
+
+bool operator!=(const Point &A, const Point &B);
+
 
 // 返回两点之间欧氏距离 
 double dist(Point p1, Point p2); 
@@ -194,6 +205,8 @@ bool Lineintersect(Line l1, Line l2, Point &p);
 // 如果线段l1和l2相交，返回true且交点由(inter)返回，否则返回false 
 bool intersection(Lineseg l1, Lineseg l2, Point &inter);
 
+//判断直线是否重合
+bool equalLine(Line l1,Line l2);
 /*************************\
 *						 *
 * 圆的基本运算           *

@@ -6,10 +6,15 @@
 #include <assert.h>
 
 #ifdef _WIN32
-#include <direct.h>
-#elif _LINUX
-#include <unistd.h>
+	#include <direct.h>
+#elif __linux__
+	#include <unistd.h>
 #endif
+
+//定义函数宏
+#define _info(format, ...) info(YFL,format,__VA_ARGS__)
+#define _warn(format, ...) warn(YFL,format,__VA_ARGS__)
+#define _error(format, ...) error(YFL,format,__VA_ARGS__)
 
 #include <stdarg.h>
 #include <time.h>
@@ -33,17 +38,15 @@ typedef enum LOG_LEVELenum{
 		LOG_MIN = 0,
 }LOG_LEVEL;
 
-typedef enum LOG_Modeenum{
-	LOG_ADD,
-	LOG_OVER
-}LOG_MODE;
-
 class Log{
 public:
-	Log(const int type, const int level);
+	Log(const int level);
 	~Log();
 	
 	void write(const char* logfilename, const int logfileline, const int level, const char* format, ...);
+	void info(const char* logfilename, const int logfileline, const char* format, ...);
+	void warn(const char* logfilename, const int logfileline, const char* format, ...);
+	void error(const char* logfilename, const int logfileline, const char* format, ...);
 private:
 
 	char path[LOG_MAXBUF];

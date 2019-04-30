@@ -5,9 +5,21 @@
 #include <ctime>
 #include <math.h>
 #include "log/log.h"
+#include <sys/time.h>
+#include <map>
 using namespace std;
 
 Logic *logic;
+Log mylog = Log(LOG_INFO);
+
+//获取毫秒时间戳
+int getCurrentTimeStamp()
+{
+	struct timeval tp;
+	gettimeofday(&tp, NULL);
+	int ms = tp.tv_sec * 1000 + tp.tv_usec / 1000;
+	return ms;
+}
 
 //根据队伍和英雄编号获取真实ID
 int node_translate(int faction, int num)
@@ -52,7 +64,7 @@ bool isWall(Point v)
 {
 	return isWall(v.x, v.y);
 }
-bool isWallNearyBy(Point v)
+bool isWallNearBy(Point v)
 {
 	if (isWall(v) == true)
 	{
@@ -71,6 +83,42 @@ bool isWallNearyBy(Point v)
 	}
 	return false;
 }
+
+int getTeam()
+{
+	return logic->faction;
+}
+
+int getEnemyTeam()
+{
+	return logic->faction ^ 1;
+}
+
+Point getOurCrystalDefaultLocation()
+{
+	return logic->map.crystal_places[getTeam()];
+}
+
+Point getEnemyCrystalDefaultLocation()
+{
+	return logic->map.crystal_places[getEnemyTeam()];
+}
+
+Point getOurCrystalLocation()
+{
+	return logic->crystal[getTeam()].position;
+}
+
+Point getEnemyCrystalLocation()
+{
+	return logic->crystal[getEnemyTeam()].position;
+}
+
+int getFrame()
+{
+	return logic->frame;
+}
+
 //使指定单位朝目标点移动
 void move(int num, Point v)
 {
@@ -144,6 +192,103 @@ void flash_s(int num, Point v)
 	flash_relative(num, v);
 }
 
+//附近是否有障碍物
+vector<Point> dv8 = {Point(0, 0), Point(1, 0), Point(0, 1), Point(-1, 0), Point(0, -1), Point(1, 1), Point(-1, 1), Point(-1, -1), Point(1, -1)};
+bool isWallNearbyNew(double x, double y, double weight)
+{
+	int size = dv8.size();
+	for (int j = 0; j < size; j++)
+	{
+		for (int i = 0; i <= weight; i++)
+		{
+			if (isWall(x + dv8[j].x * i, y + dv8[j].y * i))
+			{
+				return true;
+			}
+		}
+	}
+	return false;
+}
+
+//两点间是否存在直接路径
+bool isLineWalkable(Point start, Point end)
+{
+	if (isWall(start) or isWall(end))
+	{
+		return false;
+	}
+
+	Line line = makeLine(start, end);
+	double lineAlpha = alpha(line);
+
+	int distance = dist(start, end);
+	Point stepVec = (end - start) / dist(start, end);
+
+	double stepX = stepVec.x;
+	double stepY = stepVec.y;
+	double currentX = start.x;
+	double currentY = start.y;
+
+	for (int i = 0; i < distance; i++)
+	{
+		if (isWallNearbyNew(currentX, currentY, 2))
+		{
+			return false;
+		}
+		currentX = currentX + stepX;
+		currentY = currentY + stepY;
+	}
+	return true;
+}
+
+//floyd路径平滑算法
+void Floyd(deque<Point> *path)
+{
+	if (path->empty())
+	{
+		return;
+	}
+
+	int len = path->size();
+	//去掉同一条线上的点。
+	if (len > 2)
+	{
+		Line vector = makeLine(path->at(len - 1), path->at(len - 2));
+		Line tempvector;
+		for (int i = len - 3; i >= 0; i--)
+		{
+			tempvector = makeLine(path->at(i + 1), path->at(i));
+			if (equalLine(vector, tempvector))
+			{
+				path->erase(path->begin() + i + 1);
+			}
+			else
+			{
+				vector = tempvector;
+			}
+		}
+	}
+	//去掉无用拐点
+	len = path->size();
+	for (int i = len - 1; i >= 0; i--)
+	{
+		for (int j = 0; j <= i - 2; j++)
+		{
+			if (isLineWalkable(path->at(i), path->at(j)))
+			{
+				for (int k = i - 1; k > j; k--)
+				{
+					path->erase(path->begin() + k);
+				}
+				i = j;
+				//len = path->size();
+				break;
+			}
+		}
+	}
+	return;
+}
+
 //寻路系统
 vector<Point> pathPoints(100, Point(-1, -1));
 //vector<vector<vector<int>>> pathPointsDistance(10, vector<vector<int>>(320, vector<int>(320, -1)));
@@ -151,6 +296,8 @@ int pathPointsDistance[100][320][320];
 #define mp(a, b) make_pair((a), (b))
 void searchDistance(Point v, int dis1[320][320])
 {
+	long int startTimeStamp = getCurrentTimeStamp();
+
 	if (isPointValid(v) == false)
 	{
 		return;
@@ -166,9 +313,10 @@ void searchDistance(Point v, int dis1[320][320])
 	}
 	Q.push(mp((int)v.x, (int)v.y)); //将目标点放入队列
 	dis1[(int)v.x][(int)v.y] = 0;   //将目标点的距离设置为0
-	while (!Q.empty())				//非空队列
+	pair<int, int> st;
+	while (!Q.empty()) //非空队列
 	{
-		pair<int, int> st = Q.front();	 //获取队列中的第一个点
+		st = Q.front();					   //获取队列中的第一个点
 		Q.pop();						   //弹出该点
 		int D = dis1[st.first][st.second]; //大D为此点的距离
 		for (int direct = 0; direct < 4; direct++)
@@ -191,79 +339,277 @@ void searchDistance(Point v, int dis1[320][320])
 			}
 		}
 	}
+
+	mylog.write(YFL, LOG_INFO, "search point:(%f,%f)", v.x, v.y);
+	long int endTimeStamp = getCurrentTimeStamp();
+	mylog.write(YFL, LOG_INFO, "	costTime:%ldms", endTimeStamp - startTimeStamp);
 	//当遍历完之后，离目标点越近的点dis越小
 }
 
-//使用缓存的自动寻路系统
-void move_stupid_new(int num, Point v)
+int getCachedPointIndex(Point v, int num)
 {
-	Point myPosition = GetUnit(num).position;
 	int pointIndex;
 	for (int i = 0; i < 100; i++)
 	{
 		Point point = pathPoints[i];
-		if (equal_Point(point, v)) //判断点的路径是否已被缓存
+		if (point == v) //判断点的路径是否已被缓存
 		{
-			pointIndex = i;
-		}
-		else
-		{
-			pointIndex = 5 + num;
-			if (!equal_Point(pathPoints[pointIndex], v))
-			{
-				pathPoints[pointIndex] = v;
-				searchDistance(pathPoints[pointIndex], pathPointsDistance[pointIndex]); //对没有缓存的点搜索
-			}
+			return i;
 		}
 	}
+	pointIndex = 5 + num;
+	pathPoints[pointIndex] = v;
+	searchDistance(pathPoints[pointIndex], pathPointsDistance[pointIndex]); //对没有缓存的点搜索
+	return pointIndex;
+}
 
-	int dis[320][320];
-	queue<pair<int, int>> Q;
-	for (int i = 0; i < 320; i++)
-	{
-		for (int j = 0; j < 320; j++)
-		{
-			dis[i][j] = pathPointsDistance[pointIndex][i][j];
-		}
-	}
-
+void moveTo(int dis1[320][320], int num, Point targetLocation)
+{
+	Point myPosition = GetUnit(num).position;
 	int px = myPosition.x, py = myPosition.y;
 	int base = rand() % 4;
 	Point dv[4] = {Point(1, 0), Point(0, 1), Point(-1, 0), Point(0, -1)};
 	int tempDis[4];
-	if (isWallNearyBy(myPosition) == false) //当附近没有墙时直线移动
+	if (isWallNearBy(myPosition) == false) //当附近没有墙时直线移动
 	{
 		for (int i = 0; i < 4; i++)
 		{
 			Point tempPoint = myPosition + dv[i];
 			int tpx = tempPoint.x, tpy = tempPoint.y;
-			tempDis[i] = dis[tpx][tpy];
+			tempDis[i] = dis1[tpx][tpy];
 		}
 		for (int i = 0; i < 4; i++)
 		{
-			if (tempDis[i] < dis[px][py] && tempDis[i] == tempDis[(i + 1) % 4])
+			if (tempDis[i] < dis1[px][py] && tempDis[i] == tempDis[(i + 1) % 4])
 			{
-				move_s(num, v);
+				move_s(num, targetLocation);
 				return;
 			}
 		}
 	}
 
+	int minDistance = 99999;
+	int minDirect = 0;
 	for (int i = 0; i < 4; i++)
 	{
 		int direct = (i + base) % 4;
 		int dx = dv[direct].x, dy = dv[direct].y;
 		int x = px + dx; //(x,y)为单位的周围四个点
 		int y = py + dy;
-		if (dis[x][y] < dis[px][py]) //当新点的距离比现在的点距离小时进行相对移动
+		if (dis1[x][y] < minDistance && dis1[x][y] < dis1[px][py] && dis1[x][y] != -1) //当新点的距离比现在的点距离小时进行相对移动
 		{
-			if (dis[px + dx * 2][py + dy * 2] < dis[x][y]) //当现在的点位移2格之后比新点距离小时
-				dx *= 2, dy *= 2;
-			move_relative(num, Point(dx, dy));
-			return;
+			minDirect = direct;
+			minDistance = dis1[x][y];
 		}
 	}
+
+	Point dv2[4] = {Point(1, 0), Point(0, 1), Point(-1, 0), Point(0, -1)};
+	// mylog.write(YFL, LOG_TRACE, "	minDirect is%d", minDirect);
+	// mylog.write(YFL, LOG_TRACE, "	minDirectPoint is%lf,%lf", dv2[minDirect].x, dv2[minDirect].y);
+	move_s(num, myPosition + dv2[minDirect]);
 }
+
+//使用缓存的自动寻路系统
+void move_stupid_new(int num, Point targetLocation)
+{
+	int pointIndex = getCachedPointIndex(targetLocation, num);
+	int dis[320][320], distest[320][320];
+	for (int i = 0; i < 320; i++)
+	{
+		for (int j = 0; j < 320; j++)
+		{
+			dis[i][j] = pathPointsDistance[pointIndex][i][j];
+			distest[i][j] = -1;
+		}
+	}
+	moveTo(dis, num, targetLocation);
+	return;
+}
+
+//// 新贪婪寻路系统
+deque<Point> path[5];
+Point pathPointsNew[5];
+
+//优先队列中的点
+struct PriorityPoints
+{
+	Point point;
+	double priority;
+	PriorityPoints(){};
+	~PriorityPoints(){};
+	PriorityPoints(Point po, double pri)
+	{
+		point = po;
+		priority = pri;
+	}
+	friend bool operator<(PriorityPoints a, PriorityPoints b)
+	{
+		return a.priority > b.priority; //结构体中，priority小的优先级高
+	}
+};
+
+//曼哈顿距离评估
+int heuristic(Point a, Point b)
+{
+	return abs(a.x - b.x) + abs(a.y - b.y);
+}
+
+int pointToIndex(int x, int y)
+{
+	return 100 * x + y;
+}
+
+int pointToIndex(Point p)
+{
+	int px = floor(p.x);
+	int py = floor(p.y);
+	return 100 * px + py;
+}
+
+void indexToPoint(int index, int result[2])
+{
+	int y = index % 100;
+	int x = index - y;
+	result[0] = x;
+	result[1] = y;
+}
+
+//贪婪优先寻路算法
+bool greedSearch(Point start, Point goal, deque<Point> *path)
+{
+	while (!(*path).empty())
+	{
+		(*path).pop_front();
+	}
+	Point trueGoal = goal;
+	start.x = floor(start.x);
+	start.y = floor(start.y);
+	goal.x = floor(goal.x);
+	goal.y = floor(goal.y);
+	int startTimeStamp = getCurrentTimeStamp();
+	mylog.write(YFL, LOG_INFO, "greedSearch start(%lf,%lf),point:(%lf,%lf)", start.x, start.y, goal.x, goal.y);
+
+	priority_queue<PriorityPoints> frontier;
+	frontier.push(PriorityPoints(start, 0));
+
+	map<int, Point> came_from;
+	map<int, int> visited;
+
+	came_from.insert({pointToIndex(start), Point(-1, -1)});
+
+	Point dv[4] = {Point(1, 0), Point(0, 1), Point(-1, 0), Point(0, -1)};
+
+	int count = 0;
+	Point current, next;
+	while (!frontier.empty())
+	{
+		current = frontier.top().point;
+		frontier.pop();
+		//mylog.write(YFL, LOG_INFO, "current:%f,%f,goal:%f,%f,dist:%f", current.x, current.y, goal.x, goal.y, dist(current, goal));
+		if (dist(current, goal) < 1 or count >= 1000)
+		{
+			if (count >= 1000)
+			{
+				mylog._warn("	search failed for point (%lf,%lf)", trueGoal.x, trueGoal.y);
+			}
+			break;
+		}
+
+		for (int i = 0; i < 4; i++)
+		{
+			next = current + dv[i];
+			bool notInVisited = visited[pointToIndex(next)] == 0;
+			bool isPointPass = !isWallNearbyNew(next.x, next.y, 2);
+			if (notInVisited and isPointPass)
+			{
+				int priority = dist(goal, next);
+				frontier.push(PriorityPoints(next, priority));
+				came_from.insert({pointToIndex(next), current});
+				visited[pointToIndex(next)] = 1;
+			}
+		}
+		count++;
+	}
+
+	int count2 = 0;
+	current = goal;
+	(*path).push_front(trueGoal);
+	Point before;
+	while (dist(current, start) > 1 and count2 < count)
+	{
+		before = came_from[pointToIndex(current)];
+		(*path).push_front(current);
+		//path = current;
+		current = before;
+		count2++;
+	}
+
+	//搜索失败寻找附近的点
+	if (count == 1 or count2 == 1)
+	{
+		int random = rand() % 4;
+		(*path).push_front(start + dv[random]);
+	}
+
+	int endTimeStamp = getCurrentTimeStamp();
+
+	mylog.write(YFL, LOG_INFO, "	costTime:%dms,count:%d,count2:%d", endTimeStamp - startTimeStamp, count, count2);
+
+	if (count < 1000)
+	{
+		return true;
+	}
+	else
+	{
+		return false;
+	}
+}
+
+int lastSearchFrame[5];
+//测试寻路
+void move_greed(int num, Point targetLocation)
+{
+	Point start = GetUnit(num).position;
+	Point goal = targetLocation;
+	mylog.write(YFL, LOG_INFO, "move_greed:num:%d,start:%lf,%lf goal:%lf,%lf", num, start.x, start.y, goal.x, goal.y);
+	if (start != goal)
+	{
+		if (goal != pathPointsNew[num] or path[num].empty() or getFrame() - lastSearchFrame[num] > 10) //判断该点是否已求过路径
+		{
+			pathPointsNew[num] = goal;
+			bool searchSuccess = greedSearch(start, goal, &path[num]);
+			if (searchSuccess == true)
+			{
+				lastSearchFrame[num] = getFrame();
+				Floyd(&path[num]);
+			}
+		}
+
+		Point target = path[num].front();
+
+		if (dist(start, target) <= 0.5)
+		{
+			path[num].pop_front();
+			target = path[num].front();
+		}
+
+		move_s(num, target);
+
+		int size1 = path[num].size();
+		for (int i = 0; i < size1; i++)
+		{
+			if (dist(start, path[num][i]) >= CONST::flash_distance and canflash(num) and !isWall(path[num][i]))
+			{
+				flash_s(num, path[num][i]);
+				pathPointsNew[num] = Point(-1, -1);
+				break;
+			}
+		}
+		mylog.write(YFL, LOG_INFO, "	from %lf,%lf,move to %lf,%lf  path size:%d dist:%lf", start.x, start.y, target.x, target.y, path[num].size(), dist(start, target));
+		;
+	}
+}
+////
 
 //随机浮点数
 double RandDouble() { return rand() / (double)RAND_MAX; }
@@ -325,6 +671,109 @@ Point getNearbyRandomLocation(Point v, double distance)
 	return rotate(v, deg2rad(randomDeg), Point(v.x, v.y + distance));
 }
 
+deque<Point> enemyHistoryLocation[5];
+void recordHistroyLocation()
+{
+	for (int i = 0; i < 5; i++)
+	{
+		Human enemy = GetEnemyUnit(i);
+		if (enemy.hp < 0)
+		{
+			enemyHistoryLocation[i].resize(0);
+		}
+		else
+		{
+			if (enemyHistoryLocation[i].size() > 100)
+			{
+				enemyHistoryLocation[i].pop_back();
+			}
+			enemyHistoryLocation[i].push_front(enemy.position);
+		}
+	}
+	return;
+}
+
+int startDirection[2];
+void setDefaultTargetLocation(Point dest[])
+{
+	dest[0] = logic->crystal[logic->faction].position;				 //我方水晶
+	dest[1] = logic->map.bonus_places[0];							 //赏金符点0
+	dest[2] = logic->map.bonus_places[1];							 //赏金符点1
+	dest[3] = dest[4] = logic->crystal[logic->faction ^ 1].position; //前往敌方水晶
+	if (~logic->crystal[logic->faction ^ 1].belong)
+	{
+		dest[3] = dest[4] = logic->map.target_places[logic->faction]; //将水晶送回家
+	}
+	
+	vector<Point> deltaVector = {Point(0, 0), Point(-10, -10), Point(0, -20), Point(10, -10)};
+	for (int i = 1; i <= 2; i++)
+	{
+		Point myLocation = GetUnit(i).position;
+		if (dist(myLocation, dest[i]) <= 20)
+		{
+			Point tempPoint;
+			tempPoint.x = deltaVector[startDirection[i]].x;
+			tempPoint.y = deltaVector[startDirection[i]].y * pow(-1, getTeam());
+			if (dist(myLocation, dest[i] + tempPoint) <= 1)
+			{
+				startDirection[i] = (startDirection[i] + 1) % deltaVector.size();
+			}
+			dest[i] = dest[i] + tempPoint;
+		}
+	}
+}
+
+double getExtrapolatedSpeed(int heroIndex)
+{
+	if (enemyHistoryLocation[heroIndex].size() < 100)
+	{
+		mylog.write(YFL, LOG_TRACE, "extrapolatedSpeed[%d] is %lf", heroIndex, CONST::human_velocity * CONST::frames_per_second);
+		return CONST::human_velocity * CONST::frames_per_second;
+	}
+	Human hero = GetEnemyUnit(heroIndex);
+	Point nowLocation = hero.position;
+	Point historyLocation = enemyHistoryLocation[heroIndex][40];
+	double speed = dist(nowLocation, historyLocation) / 40 * CONST::frames_per_second;
+	mylog.write(YFL, LOG_TRACE, "extrapolatedSpeed[%d] is %lf", heroIndex, speed);
+	return speed;
+}
+
+Point getExtrapolatedLocation(int heroIndex, double time)
+{
+	int frame = time * 20;
+	if (frame > 100)
+	{
+		frame = 100;
+	}
+
+	Human hero = GetEnemyUnit(heroIndex);
+	Point nowLocation = hero.position;
+
+	if (enemyHistoryLocation[heroIndex].size() < 100)
+	{
+		mylog.write(YFL, LOG_TRACE, "futureLocation[%d] is (%lf,%lf)", heroIndex, nowLocation.x, nowLocation.y);
+		return nowLocation;
+	}
+
+	Point historyLocation = enemyHistoryLocation[heroIndex][40];
+	mylog.write(YFL, LOG_TRACE, "historyLocation[%d] is (%lf,%lf)", heroIndex, historyLocation.x, historyLocation.y);
+	double x = nowLocation.x + (nowLocation.x - historyLocation.x) / 40 * frame;
+	double y = nowLocation.y + (nowLocation.y - historyLocation.y) / 40 * frame;
+	Point futureLocation = Point(x, y);
+	mylog.write(YFL, LOG_TRACE, "futureLocation[%d] is (%lf,%lf)", heroIndex, x, y);
+	return futureLocation;
+}
+
+bool hasFlash(int heroIndex, int frame)
+{
+	Human enemy = GetEnemyUnit(heroIndex);
+	if (enemy.flash_time > frame)
+	{
+		return false;
+	}
+	return true;
+}
+
 vector<Point> highLevelPoints(5, Point(-1, -1));
 vector<double> highLevelTimer(5, -1);
 Point fixedCrystalPosition[2], fixedTargetPosition[2];
@@ -361,12 +810,12 @@ void initPoints()
 //当常用点的位置发生变化时，重新搜索一次
 void recheckPoints()
 {
-	if (!equal_Point(pathPoints[0], logic->crystal[logic->faction].position))
+	if (pathPoints[0] != logic->crystal[logic->faction].position)
 	{
 		pathPoints[0] = logic->crystal[logic->faction].position;
 		searchDistance(pathPoints[0], pathPointsDistance[0]);
 	}
-	if (!equal_Point(pathPoints[3], logic->crystal[logic->faction ^ 1].position))
+	if (pathPoints[3] != logic->crystal[logic->faction ^ 1].position)
 	{
 		pathPoints[3] = logic->crystal[logic->faction ^ 1].position;
 		searchDistance(pathPoints[3], pathPointsDistance[3]);
@@ -387,11 +836,88 @@ bool areWeGetCrystal()
 	}
 }
 
+//获取敌方水晶所属单位
+int getEnemyCrystalBelonging()
+{
+	for (int i = 0; i < 5; i++)
+	{
+		if (logic->crystal[logic->faction ^ 1].belong == node_translate(logic->faction, i))
+		{
+			return i;
+		}
+	}
+	return -1;
+}
+
+//获取离该点最近的友方单位
+int getNearestUnitToCrystal()
+{
+	Point point = logic->map.crystal_places[logic->faction ^ 1];
+	int unitIndex = 0;
+	double minDistance = 999;
+	for (int i = 0; i < 5; i++)
+	{
+		if (i == 1 or i == 2 or GetUnit(i).hp <= 0)
+		{
+			continue;
+		}
+		Point myPostion = GetUnit(i).position;
+		double distance = dist(myPostion, point);
+		if (distance < minDistance)
+		{
+			minDistance = distance;
+			unitIndex = i;
+		}
+	}
+	return unitIndex;
+}
+
+queue<Point> movePathQueue[5];
+bool pastAttackState; //0==进攻 1==返回
+void setMovePathQueue(queue<Point> *Q)
+{
+	vector<Point> crystalAttackPath = {getOurCrystalDefaultLocation(), fixedTargetPosition[getTeam()], pathPoints[10], fixedTargetPosition[getEnemyTeam()], getEnemyCrystalDefaultLocation()};
+
+	if (areWeGetCrystal())
+	{
+		reverse(crystalAttackPath.begin(), crystalAttackPath.end());
+	}
+
+	int size = crystalAttackPath.size();
+	for (int i = 0; i < size; i++)
+	{
+		Q->push(crystalAttackPath[i]);
+	}
+}
+
+int secondLeaderIndex = -1;
 //通过路径点寻路
 void getTargetByPath(Point dest[])
 {
-	Point myCrystal = logic->map.crystal_places[logic->faction];
-	Point enemyCrystal = logic->map.crystal_places[logic->faction ^ 1];
+	Point myCrystal = getOurCrystalDefaultLocation();
+	Point enemyCrystal = getEnemyCrystalDefaultLocation();
+	// for (int i = 0; i < 5; i++)
+	// {
+	// 	Point myLocation = GetUnit(i).position;
+
+	// 	if (i == 1 || i == 2)
+	// 	{
+	// 		continue;
+	// 	}
+
+	// 	if (pastAttackState != areWeGetCrystal() or movePathQueue[i].empty())
+	// 	{
+	// 		setMovePathQueue(&movePathQueue[i]);
+	// 		pastAttackState = areWeGetCrystal();
+	// 	}
+
+	// 	if (dist(myLocation, movePathQueue[i].front()) < 2)
+	// 	{
+	// 		movePathQueue[i].pop();
+	// 	}
+	// 	dest[i] = movePathQueue[i].front();
+	// }
+
 	for (int i = 0; i < 5; i++)
 	{
 		if (i == 1 || i == 2)
@@ -400,33 +926,32 @@ void getTargetByPath(Point dest[])
 		}
 
 		Point myPostion = GetUnit(i).position;
+		int myTeam = getTeam();
+		int enemyTeam = getEnemyTeam();
+		Point enemyCrystalLocation = getEnemyCrystalLocation();
+		Point enemyCrystalDefaultLocation = getEnemyCrystalDefaultLocation();
+		Point myCrystalDefaultLocation = getOurCrystalDefaultLocation();
 		if (areWeGetCrystal() == false)
 		{
-			if (equal_Point(logic->crystal[logic->faction ^ 1].position, logic->map.crystal_places[logic->faction ^ 1]))
+			if (enemyCrystalLocation == enemyCrystalDefaultLocation and dist(myPostion, fixedCrystalPosition[enemyTeam]) > 15)
 			{
-				if (dist(myPostion, fixedCrystalPosition[logic->faction ^ 1]) > 15)
-				{
-					dest[i] = fixedCrystalPosition[logic->faction ^ 1]; //优化后的位置
-				}
-				else
-				{
-					dest[i] = logic->crystal[logic->faction ^ 1].position;
-				}
+
+				dest[i] = fixedCrystalPosition[enemyTeam]; //优化后的位置
 			}
 			else
 			{
-				dest[i] = logic->crystal[logic->faction ^ 1].position; //前往敌方水晶
+				dest[i] = enemyCrystalLocation; //前往敌方水晶
 			}
 		}
 		else
 		{
-			if (dist(myPostion, fixedTargetPosition[logic->faction]) > 15)
+			if (dist(myPostion, fixedTargetPosition[myTeam]) > 15)
 			{
-				dest[i] = fixedTargetPosition[logic->faction]; //将水晶送回家
+				dest[i] = fixedTargetPosition[myTeam]; //将水晶送回家
 			}
 			else
 			{
-				dest[i] = logic->map.target_places[logic->faction]; //将水晶送回家
+				dest[i] = myCrystalDefaultLocation; //将水晶送回家
 			}
 		}
 	}
@@ -439,21 +964,134 @@ void getTargetByPath(Point dest[])
 			continue;
 		}
 
-		bool flag1, flag2;
-
-		if (dist(myCrystal, myPostion) < dist(myCrystal, pathPoints[10]) - 2) //过去
+		if (dist(myCrystal, myPostion) < dist(myCrystal, pathPoints[10]) - 5) //过去
 		{
 			if (dist(myCrystal, pathPoints[10]) <= dist(myCrystal, dest[i]))
 			{
 				dest[i] = pathPoints[10];
 			}
 		}
-		else if (dist(enemyCrystal, myPostion) < dist(enemyCrystal, pathPoints[10]) - 2) //回来
+		else if (dist(enemyCrystal, myPostion) < dist(enemyCrystal, pathPoints[10]) - 5) //回来
 		{
 			if (dist(myCrystal, pathPoints[10]) >= dist(myCrystal, dest[i]))
 			{
 				dest[i] = pathPoints[10];
 			}
+		}
+	}
+
+	int enemyCrystalBelonging = getEnemyCrystalBelonging();
+	int nearestUnitToCrystal = getNearestUnitToCrystal();
+	int headUnitIndex = 0;
+	if (enemyCrystalBelonging != -1)
+	{
+		headUnitIndex = enemyCrystalBelonging;
+	}
+	else
+	{
+		headUnitIndex = nearestUnitToCrystal;
+	}
+
+	deque<int> unitQueue;
+	for (int i = 0; i < 5; i++)
+	{
+		Point myPostion = GetUnit(i).position;
+		if (i == 1 or i == 2 or i == headUnitIndex)
+		{
+			continue;
+		}
+		unitQueue.push_front(i);
+	}
+
+	Point fixVector[2];
+	Point basePoint;
+	int angle = 0;
+	if (areWeGetCrystal() == false)
+	{
+		basePoint = GetUnit(headUnitIndex).position;
+		angle = 180;
+	}
+	else
+	{
+		basePoint = getEnemyCrystalLocation();
+	}
+
+	int highestHp = 0;
+	int highestHpUnit;
+
+	fixVector[0] = getNearbyVector(deg2rad(15 + getTeam() * 180 + angle), 8);
+	fixVector[1] = getNearbyVector(deg2rad(75 + getTeam() * 180 + angle), 8);
+	int size = unitQueue.size();
+	for (int i = 0; i < size; i++)
+	{
+		int unitIndex = unitQueue[i];
+		Human unit = GetUnit(unitIndex);
+		if (unit.hp > highestHp)
+		{
+			highestHp = unit.hp;
+			highestHpUnit = unitIndex;
+		}
+
+		//unitQueue.pop();
+		Point newPoint = basePoint + fixVector[i];
+		if (isWall(newPoint) == false)
+		{
+			dest[unitIndex] = newPoint;
+		}
+	}
+
+	// if (secondLeaderIndex != -1 and GetUnit(secondLeaderIndex).hp <= 0)
+	// {
+	// 	secondLeaderIndex = -1;
+	// }
+
+	// bool secondBackPeriod = dist(getEnemyCrystalLocation(), getOurCrystalDefaultLocation()) < dist(pathPoints[10], getOurCrystalDefaultLocation()) - 25;
+	// if (secondBackPeriod and areWeGetCrystal())
+	// {
+	// 	if (secondLeaderIndex == -1)
+	// 	{
+	// 		secondLeaderIndex = highestHpUnit;
+	// 	}
+	// 	else
+	// 	{
+	// 		int size = unitQueue.size();
+	// 		for (int i = 0; i < size; i++)
+	// 		{
+	// 			if (i == 0)
+	// 			{
+	// 				int unitIndex = unitQueue[i];
+	// 				dest[unitIndex] = getEnemyCrystalDefaultLocation();
+	// 			}
+	// 			else
+	// 			{
+	// 				int unitIndex = unitQueue[i];
+	// 				dest[unitIndex] = GetUnit(unitQueue[0]).position + fixVector[0];
+	// 			}
+	// 		}
+	// 	}
+	// }
+	// else
+	// {
+	// 	secondLeaderIndex = -1;
+	// }
+
+	for (int i = 0; i < 5; i++)
+	{
+		Point myPosition = GetUnit(i).position;
+		Point birthPosition = logic->map.birth_places[logic->faction][i];
+		double distance;
+		if (logic->faction == 0)
+		{
+			distance = 35;
+		}
+		else
+		{
+			distance = 25;
+		}
+
+		if (dist(myPosition, birthPosition) < distance)
+		{
+			dest[i] = logic->map.target_places[logic->faction];
 		}
 	}
 	return;
@@ -465,21 +1103,34 @@ void attackAndCast()
 	for (int i = 0; i < 5; i++)
 	{
 		Point myPostion = GetUnit(i).position;
-		Point targ = logic->map.birth_places[logic->faction ^ 1][0]; //敌方出生点
+		Point targetPoint = logic->map.birth_places[logic->faction ^ 1][0]; //敌方出生点
+		int targetHeroIndex = 0;
 		for (int j = 0; j < 5; j++)
 		{
 			Human unit = GetEnemyUnit(j);
 			if (unit.hp <= 0)
 				continue;
-			if (dist(unit.position, myPostion) < dist(targ, myPostion))
-				targ = unit.position; //寻找最近的敌方单位
+			if (dist(unit.position, myPostion) < dist(targetPoint, myPostion))
+			{
+				targetPoint = unit.position; //寻找最近的敌方单位
+				targetHeroIndex = j;
+			}
 		}
-		double D = dist(targ, myPostion) * 0.1;
-		logic->shoot(i, Point(targ.x, targ.y)); //使用火球
+		double D = dist(targetPoint, myPostion) * 0.1;
 
-		if (dist(Point(targ.x, targ.y), myPostion) <= CONST::meteor_distance - 5)
+		Human enemy = GetEnemyUnit(targetHeroIndex);
+		Point enemyLocation = enemy.position;
+
+		double targetSpeed = getExtrapolatedSpeed(targetHeroIndex);
+		double trackFlyTime = dist(myPostion, enemyLocation) / (CONST::fireball_velocity * CONST::frames_per_second);
+		Point shootPoint = getExtrapolatedLocation(targetHeroIndex, trackFlyTime);
+
+		logic->shoot(i, targetPoint); //使用火球
+
+		Point meteorPoint = getExtrapolatedLocation(targetHeroIndex, 2);
+		if (dist(meteorPoint, myPostion) <= CONST::meteor_distance && hasFlash(targetHeroIndex, CONST::meteor_delay) == false)
 		{
-			logic->meteor(i, Point(targ.x + RandDouble(-1, 1), targ.y + RandDouble(-1, 1))); //使用陨石
+			logic->meteor(i, meteorPoint); //使用陨石
 		}
 	}
 	return;
@@ -538,10 +1189,22 @@ void executeMove(Point dest[])
 			finalDest = highLevelPoints[i];
 		}
 
-		move_stupid_new(i, finalDest); //先寻路，再闪现
-		if (dist(myPostion, finalDest) > CONST::flash_distance / 2)
+		if (myPostion != finalDest)
 		{
-			flash_s(i, finalDest);
+			if (isLineWalkable(myPostion, finalDest))
+			{
+				move_s(i, finalDest);
+				flash_s(i, finalDest);
+				mylog._info("	Direct Line for (%lf,%lf) to (%lf,%lf),walk through", myPostion.x, myPostion.y, finalDest.x, finalDest.y);
+			}
+			else
+			{
+				move_greed(i, finalDest);
+			}
+		}
+		else
+		{
+			mylog._info("Player %d arrival target (%lf,%lf)", i, finalDest.x, finalDest.y);
 		}
 	}
 	return;
@@ -564,23 +1227,40 @@ void randomDest(Point dest[])
 void playerAI()
 {
 	logic = Logic::Instance(); //获取实例
-	if (logic->frame == 1)	 //第一帧初始化种子
+
+	int frame = logic->frame;
+	mylog.write(YFL, LOG_INFO, "frame:%d", frame);
+	int startTimeStamp = getCurrentTimeStamp();
+
+	if (logic->frame == 1) //第一帧初始化种子
 	{
 		srand(time(NULL));
 		initPoints();
-		initSearch();
+		//initSearch();
 	}
-	recheckPoints();
+	//recheckPoints();
 
 	Point dest[5];
-	dest[0] = logic->crystal[logic->faction].position; //我方水晶
-	dest[1] = logic->map.bonus_places[0];			   //赏金符点0
-	dest[2] = logic->map.bonus_places[1];			   //赏金符点1
+
+	setDefaultTargetLocation(dest);
+	for (int i = 0; i < 5; i++)
+	{
+		move_s(i, dest[i]);
+	}
+
+	recordHistroyLocation();
 
 	attackAndCast();
 	getTargetByPath(dest);
 	//randomDest(dest);
 	avoidAttack(dest);
 	executeMove(dest);
+
+	long int endTimeStamp = getCurrentTimeStamp();
+	mylog.write(YFL, LOG_INFO, "costTime:%ldms", endTimeStamp - startTimeStamp);
+	if (endTimeStamp - startTimeStamp > 50)
+	{
+		mylog.write(YFL, LOG_WARNING, "long frame detected");
+	}
 	return;
 }
