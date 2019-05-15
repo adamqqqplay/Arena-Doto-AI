@@ -15,6 +15,11 @@ Point operator-(const Point &A, const Point &B)
 	return Point(A.x - B.x, A.y - B.y);
 }
 
+double operator*(const Point &A, const Point &B)
+{
+	return A.x * B.x + A.y * B.y;
+}
+
 Point operator*(const Point &A, const double &B)
 {
 	return Point(A.x * B, A.y * B);
@@ -394,13 +399,19 @@ bool intersection(Lineseg l1, Lineseg l2, Point &inter)
 }
 
 //判断直线是否重合
-bool equalLine(Line l1,Line l2)
+bool equalLine(Line l1, Line l2)
 {
-	if(l1.a/l2.a==l1.b/l2.b and l1.b/l2.b==l1.c/l2.c)
+	if (l1.a / l2.a == l1.b / l2.b and l1.b / l2.b == l1.c / l2.c)
 	{
 		return true;
 	}
 	return false;
+}
+
+//求点到直线的距离
+double poinToLinetDistance(Point p, Line l)
+{
+	return abs((l.a * p.x + l.b * p.y + l.c) / sqrt(pow(l.a, 2) + pow(l.b, 2)));
 }
 /*************************\
 *						 *

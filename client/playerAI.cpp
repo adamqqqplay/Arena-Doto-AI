@@ -7,6 +7,8 @@
 #include "log/log.h"
 #include <sys/time.h>
 #include <map>
+#include "astar/astar.h"
+#include "astar/blockallocator.h"
 using namespace std;
 
 Logic *logic;
@@ -117,6 +119,310 @@ Point getEnemyCrystalLocation()
 int getFrame()
 {
 	return logic->frame;
+}
+
+//曼哈顿距离评估
+int heuristic(Point a, Point b)
+{
+	return abs(a.x - b.x) + abs(a.y - b.y);
+}
+
+int pointToIndex(int x, int y)
+{
+	return 1000 * x + y;
+}
+
+int pointToIndex(Point p)
+{
+	int px = floor(p.x);
+	int py = floor(p.y);
+	return 1000 * px + py;
+}
+
+void indexToPoint(int index, int result[2])
+{
+	int y = index % 1000;
+	int x = index - y;
+	result[0] = x;
+	result[1] = y;
+}
+
+//是否为敌方玩家
+bool isEnemy(int num)
+{
+	if (num % 2 != logic->faction)
+	{
+		return true;
+	}
+	return false;
+}
+
+int getTheDistanceToWall(Point location, Point vector)
+{
+	double locationX = location.x;
+	double locationY = location.y;
+	double deltaX = vector.x;
+	double deltaY = vector.y;
+	for (int i = 0; i <= 30; i++)
+	{
+		if (isWall(locationX, locationY))
+		{
+			return i;
+		}
+		locationX += deltaX;
+		locationY += deltaY;
+	}
+	return 30;
+}
+
+Line getFireBallLine(Fireball fireball)
+{
+	Point futureFirePosition = getNearbyPoint(fireball.position, fireball.rotation, CONST::fireball_velocity * 10);
+	return makeLine(fireball.position, futureFirePosition);
+}
+
+Lineseg getFireBallLineseg(Fireball fireball)
+{
+	int length = CONST::fireball_velocity * 10;
+	Point location = fireball.position;
+	Point deltaVector = getNearbyVector(fireball.rotation, 1);
+	int realLength = getTheDistanceToWall(location, deltaVector); //火球撞墙后弹道消失
+	Point futureFirePosition = getNearbyPoint(fireball.position, fireball.rotation, realLength);
+	return Lineseg(fireball.position, futureFirePosition);
+}
+
+// double getPointRisk(Point point)
+// {
+// 	double risk = 0;
+// 	vector<Meteor> metors = logic->meteors;
+// 	vector<Fireball> fireballs = logic->fireballs;
+// 	for (auto metor : metors)
+// 	{
+// 		if (isEnemy(metor.from_number) && metor.last_time <= CONST::meteor_delay / 2 && metor.last_time > 0)
+// 		{
+// 			if (dist(metor.position, point) <= CONST::explode_radius + 1)
+// 			{
+// 				risk += 100;
+// 			}
+// 		}
+// 	}
+
+// 	Point np;
+// 	for (auto fireball : fireballs)
+// 	{
+// 		if (isEnemy(fireball.from_number))
+// 		{
+// 			double distance = dist(point, fireball.position);
+// 			if (distance <= CONST::fireball_velocity * 10)
+// 			{
+// 				Lineseg line = getFireBallLineseg(fireball);
+// 				double straightDistance = ptoLinesegdist(point, line, np);
+// 				//double verticalDistance = poinToLinetDistance(point, line);
+// 				if (straightDistance <= CONST::fireball_radius + 1)
+// 				{
+// 					risk += 5;
+// 				}
+// 			}
+// 		}
+// 	}
+// 	return risk;
+// }
+
+Human getTheMostNearbyEnemy(Point myLocation)
+{
+	double minDistance = 999;
+	double distance;
+	Human minHuman, current;
+	for (int i = 0; i < 5; i++)
+	{
+		current = GetEnemyUnit(i);
+		distance = dist(current.position, myLocation);
+		if (distance < minDistance)
+		{
+			minDistance = distance;
+			minHuman = current;
+		}
+	}
+	return minHuman;
+}
+
+Fireball getTheMostRecentFireball(Point myLocation)
+{
+	vector<Fireball> fireballs = logic->fireballs;
+	double minDistance = 999;
+	double distance;
+	Fireball minFireball = Fireball(-1, -1, -1, -1);
+	for (auto fireball : fireballs)
+	{
+		if (isEnemy(fireball.from_number))
+		{
+			Lineseg line = getFireBallLineseg(fireball);
+			Point np;
+			double straightDistance = ptoLinesegdist(myLocation, line, np);
+			if (straightDistance <= CONST::fireball_radius + 1)
+			{
+				distance = dist(fireball.position, myLocation);
+				if (distance < minDistance)
+				{
+					minDistance = distance;
+					minFireball = fireball;
+				}
+			}
+		}
+	}
+	return minFireball;
+}
+
+Line getVerticalLine(Line line, Point point)
+{
+	Line newLine(line.b, -line.a, line.a * point.y - line.b * point.x);
+}
+
+Point getAvoidVector(Point myLocation)
+{
+	Point baseVector = Point(0, 0);
+
+	vector<Fireball> fireballs = logic->fireballs;
+	double minDistance = 999;
+	double distance;
+	Fireball minFireball = Fireball(-1, -1, -1, -1);
+	for (auto fireball : fireballs)
+	{
+		if (isEnemy(fireball.from_number))
+		{
+			Lineseg line = getFireBallLineseg(fireball);
+			Point np;
+			double straightDistance = ptoLinesegdist(myLocation, line, np);
+			if (straightDistance <= CONST::fireball_radius + 0.5)
+			{
+				Point vector1 = getNearbyPoint(fireball.position, fireball.rotation + deg2rad(90), 1) - fireball.position;
+				Point vector2 = getNearbyPoint(fireball.position, fireball.rotation - deg2rad(90), 1) - fireball.position;
+				int distanceToWall1 = getTheDistanceToWall(myLocation, vector1);
+				int distanceToWall2 = getTheDistanceToWall(myLocation, vector2);
+				Point toCenter = fireball.position - myLocation;
+				if (vector1 * toCenter < 0 and distanceToWall1 > 3)
+				{
+					baseVector = baseVector + vector1;
+				}
+				else if (vector2 * toCenter <= 0 and distanceToWall2 > 3)
+				{
+					baseVector = baseVector + vector2;
+				}
+				else if (vector1 * toCenter < 0)
+				{
+					baseVector = baseVector + vector1;
+				}
+				else
+				{
+					baseVector = baseVector + vector2;
+				}
+			}
+		}
+	}
+	return baseVector;
+}
+
+map<int, int> riskMap;
+void generateRiskMap()
+{
+	int startTimeStamp = getCurrentTimeStamp();
+	riskMap.clear();
+	double risk = 0;
+	vector<Fireball> fireballs = logic->fireballs;
+	for (auto fireball : fireballs)
+	{
+		map<int, int> passedMap;
+		if (isEnemy(fireball.from_number))
+		{
+			Lineseg line = getFireBallLineseg(fireball);
+			Point delta = (line.e - line.s) / dist(line.e, line.s);
+			Point current = line.s;
+			int distance = dist(line.s, line.e);
+			for (int k = 0; k < distance; k++)
+			{
+				int fireballX = floor(current.x);
+				int fireballY = floor(current.y);
+				passedMap[pointToIndex(fireballX, fireballY)] = 1;
+				for (int i = -3; i <= 3; i++)
+				{
+					for (int j = -3; j <= 3; j++)
+					{
+						passedMap[pointToIndex(fireballX + i, fireballY + j)] = 1;
+					}
+				}
+				current = current + delta;
+			}
+		}
+		for (auto pointIndex : passedMap)
+		{
+			if (pointIndex.second == 1)
+			{
+				riskMap[pointIndex.first] += 5;
+			}
+		}
+	}
+	vector<Meteor> metors = logic->meteors;
+	for (auto metor : metors)
+	{
+		if (isEnemy(metor.from_number) && metor.last_time <= CONST::meteor_delay / 2 && metor.last_time > 0)
+		{
+			int metorX = metor.position.x;
+			int metorY = metor.position.y;
+			riskMap[pointToIndex(metor.position)] += 100;
+			for (int i = -3; i <= 3; i++)
+			{
+				for (int j = -3; j <= 3; j++)
+				{
+					riskMap[pointToIndex(metorX + i, metorY + j)] += 100;
+				}
+			}
+		}
+	}
+
+	int endTimeStamp = getCurrentTimeStamp();
+	mylog.write(YFL, LOG_INFO, "[generateRiskMap] costTime:%dms,map size:%d", endTimeStamp - startTimeStamp, riskMap.size());
+	return;
+}
+
+int getRiskMapValue(Point p)
+{
+	return riskMap[pointToIndex(p)];
+}
+
+//寻找附近的安全位置
+Point findNearbyNoRiskLocation(Point v)
+{
+	for (int i = 0; i < 10; i++)
+	{
+		Point basePoint = Point(v.x, v.y + i);
+		for (int j = 0; j < 8; j++)
+		{
+			Point newPoint = rotate(v, deg2rad(45 * j), basePoint);
+			if (getRiskMapValue(newPoint) == 0 and isWall(newPoint) == false)
+			{
+				return newPoint;
+			}
+		}
+	}
+	return v;
+}
+
+//寻找附近的可移动点
+Point findNearbyMovableLocation(Point v)
+{
+	for (int i = 0; i < 10; i++)
+	{
+		Point basePoint = Point(v.x, v.y + i);
+		for (int j = 0; j < 8; j++)
+		{
+			Point newPoint = rotate(v, deg2rad(45 * j), basePoint);
+			if (isWall(newPoint) == false)
+			{
+				return newPoint;
+			}
+		}
+	}
+	return v;
 }
 
 //使指定单位朝目标点移动
@@ -242,9 +548,10 @@ bool isLineWalkable(Point start, Point end)
 }
 
 //floyd路径平滑算法
-void Floyd(deque<Point> *path)
+void Floyd(deque<Point> *path, bool fullOptimize)
 {
-	if (path->empty())
+	int startTimeStamp = getCurrentTimeStamp();
+	if (path->empty() or path->size() >= 500)
 	{
 		return;
 	}
@@ -269,7 +576,16 @@ void Floyd(deque<Point> *path)
 		}
 	}
 	//去掉无用拐点
-	len = path->size();
+	if (fullOptimize)
+	{
+		len = path->size();
+	}
+	else
+	{
+		int len2 = path->size();
+		len = min(len2, 10);
+	}
+
 	for (int i = len - 1; i >= 0; i--)
 	{
 		for (int j = 0; j <= i - 2; j++)
@@ -286,6 +602,8 @@ void Floyd(deque<Point> *path)
 			}
 		}
 	}
+	int endTimeStamp = getCurrentTimeStamp();
+	mylog.write(YFL, LOG_INFO, "[Floyd] costTime:%dms", endTimeStamp - startTimeStamp);
 	return;
 }
 
@@ -340,9 +658,8 @@ void searchDistance(Point v, int dis1[320][320])
 		}
 	}
 
-	mylog.write(YFL, LOG_INFO, "search point:(%f,%f)", v.x, v.y);
 	long int endTimeStamp = getCurrentTimeStamp();
-	mylog.write(YFL, LOG_INFO, "	costTime:%ldms", endTimeStamp - startTimeStamp);
+	mylog.write(YFL, LOG_INFO, "(searchDistance) point:(%f,%f) costTime:%ldms", v.x, v.y, endTimeStamp - startTimeStamp);
 	//当遍历完之后，离目标点越近的点dis越小
 }
 
@@ -404,8 +721,6 @@ void moveTo(int dis1[320][320], int num, Point targetLocation)
 	}
 
 	Point dv2[4] = {Point(1, 0), Point(0, 1), Point(-1, 0), Point(0, -1)};
-	// mylog.write(YFL, LOG_TRACE, "	minDirect is%d", minDirect);
-	// mylog.write(YFL, LOG_TRACE, "	minDirectPoint is%lf,%lf", dv2[minDirect].x, dv2[minDirect].y);
 	move_s(num, myPosition + dv2[minDirect]);
 }
 
@@ -430,6 +745,46 @@ void move_stupid_new(int num, Point targetLocation)
 deque<Point> path[5];
 Point pathPointsNew[5];
 
+//测试A*搜索
+bool astarSearch(Point start, Point goal, deque<Point> *path)
+{
+	int startTimeStamp = getCurrentTimeStamp();
+	mylog.write(YFL, LOG_INFO, "astarSearch start(%lf,%lf),point:(%lf,%lf)", start.x, start.y, goal.x, goal.y);
+
+	while (!(*path).empty())
+	{
+		(*path).pop_front();
+	}
+
+	// 搜索参数
+	AStar::Params param;
+	param.width = 360;
+	param.height = 360;
+	param.corner = true;
+	param.start = AStar::Vec2(floor(start.x), floor(start.y));
+	param.end = AStar::Vec2(floor(goal.x), floor(goal.y));
+	param.can_pass = [&](const AStar::Vec2 &pos) -> bool {
+		return isWall(pos.x, pos.y) == false;
+	};
+
+	// 执行搜索
+	BlockAllocator allocator;
+	AStar algorithm(&allocator);
+	auto path1 = algorithm.find(param);
+	int size = path1.size();
+
+	for (int i = 0; i < size; i++)
+	{
+		AStar::Vec2 point = path1[i];
+		path->push_back(Point(point.x, point.y));
+	}
+	path->push_back(goal);
+	int endTimeStamp = getCurrentTimeStamp();
+	mylog.write(YFL, LOG_INFO, "	astar costTime:%dms,count:%d", endTimeStamp - startTimeStamp, path->size());
+
+	return true;
+}
+
 //优先队列中的点
 struct PriorityPoints
 {
@@ -447,32 +802,6 @@ struct PriorityPoints
 		return a.priority > b.priority; //结构体中，priority小的优先级高
 	}
 };
-
-//曼哈顿距离评估
-int heuristic(Point a, Point b)
-{
-	return abs(a.x - b.x) + abs(a.y - b.y);
-}
-
-int pointToIndex(int x, int y)
-{
-	return 100 * x + y;
-}
-
-int pointToIndex(Point p)
-{
-	int px = floor(p.x);
-	int py = floor(p.y);
-	return 100 * px + py;
-}
-
-void indexToPoint(int index, int result[2])
-{
-	int y = index % 100;
-	int x = index - y;
-	result[0] = x;
-	result[1] = y;
-}
 
 //贪婪优先寻路算法
 bool greedSearch(Point start, Point goal, deque<Point> *path)
@@ -497,32 +826,53 @@ bool greedSearch(Point start, Point goal, deque<Point> *path)
 
 	came_from.insert({pointToIndex(start), Point(-1, -1)});
 
-	Point dv[4] = {Point(1, 0), Point(0, 1), Point(-1, 0), Point(0, -1)};
+	Point dv[8] = {Point(1, 0), Point(0, 1), Point(-1, 0), Point(0, -1), Point(1, 1), Point(-1, 1), Point(-1, -1), Point(1, -1)};
 
 	int count = 0;
 	Point current, next;
+	double minDistanceTotarget = 999;
+	int warningCount = 0;
 	while (!frontier.empty())
 	{
 		current = frontier.top().point;
 		frontier.pop();
 		//mylog.write(YFL, LOG_INFO, "current:%f,%f,goal:%f,%f,dist:%f", current.x, current.y, goal.x, goal.y, dist(current, goal));
-		if (dist(current, goal) < 1 or count >= 1000)
+
+		double currentDistanceToTarget = dist(current, goal);
+		if (currentDistanceToTarget < minDistanceTotarget)
 		{
-			if (count >= 1000)
+			minDistanceTotarget = currentDistanceToTarget;
+		}
+		else
+		{
+			if (currentDistanceToTarget < 5 and currentDistanceToTarget > minDistanceTotarget)
+			{
+				warningCount++;
+			}
+		}
+
+		if (currentDistanceToTarget <= 1 or count >= 600 or warningCount >= 3)
+		{
+			if (count >= 600)
 			{
 				mylog._warn("	search failed for point (%lf,%lf)", trueGoal.x, trueGoal.y);
+			}
+			if (warningCount >= 3)
+			{
+				mylog._warn("	get a Alternative point for (%lf,%lf), minDistanceTotarget:%lf , currentDistanceToTarget:%lf", trueGoal.x, trueGoal.y, minDistanceTotarget, currentDistanceToTarget);
 			}
 			break;
 		}
 
-		for (int i = 0; i < 4; i++)
+		for (int i = 0; i < 8; i++)
 		{
 			next = current + dv[i];
 			bool notInVisited = visited[pointToIndex(next)] == 0;
-			bool isPointPass = !isWallNearbyNew(next.x, next.y, 2);
-			if (notInVisited and isPointPass)
+			bool isPointPass = !isWallNearbyNew(next.x, next.y, 1);
+			int riskValue = getRiskMapValue(next);
+			if (notInVisited and isPointPass and riskValue < 100)
 			{
-				int priority = dist(goal, next);
+				int priority = dist(goal, next); // + riskValue;
 				frontier.push(PriorityPoints(next, priority));
 				came_from.insert({pointToIndex(next), current});
 				visited[pointToIndex(next)] = 1;
@@ -533,7 +883,10 @@ bool greedSearch(Point start, Point goal, deque<Point> *path)
 
 	int count2 = 0;
 	current = goal;
-	(*path).push_front(trueGoal);
+	if (warningCount < 3)
+	{
+		(*path).push_front(trueGoal);
+	}
 	Point before;
 	while (dist(current, start) > 1 and count2 < count)
 	{
@@ -566,47 +919,116 @@ bool greedSearch(Point start, Point goal, deque<Point> *path)
 }
 
 int lastSearchFrame[5];
+deque<Point> oldPath[5];
 //测试寻路
 void move_greed(int num, Point targetLocation)
 {
+	int startTimeStamp = getCurrentTimeStamp();
 	Point start = GetUnit(num).position;
 	Point goal = targetLocation;
 	mylog.write(YFL, LOG_INFO, "move_greed:num:%d,start:%lf,%lf goal:%lf,%lf", num, start.x, start.y, goal.x, goal.y);
 	if (start != goal)
 	{
-		if (goal != pathPointsNew[num] or path[num].empty() or getFrame() - lastSearchFrame[num] > 10) //判断该点是否已求过路径
+		int currentPointRisk = getRiskMapValue(start);
+		if (path[num].empty() or goal != pathPointsNew[num] or getFrame() - lastSearchFrame[num] >= 10 or currentPointRisk != 0) //判断该点是否已求过路径
 		{
 			pathPointsNew[num] = goal;
 			bool searchSuccess = greedSearch(start, goal, &path[num]);
 			if (searchSuccess == true)
 			{
+				oldPath[num].assign(path[num].begin(), path[num].end());
 				lastSearchFrame[num] = getFrame();
-				Floyd(&path[num]);
+				Floyd(&path[num], true);
 			}
 		}
 
+		start = GetUnit(num).position;
 		Point target = path[num].front();
 
-		if (dist(start, target) <= 0.5)
+		if (dist(start, target) <= 1 and path[num].size() > 1)
 		{
 			path[num].pop_front();
 			target = path[num].front();
 		}
+		mylog._info("		//next path:%lf,%lf", target.x, target.y);
+
+		double dived = dist(start, target);
+		if (dived == 0)
+		{
+			dived = dist(start, goal);
+		}
+		if (dived == 0)
+		{
+			target = Point(0, 0);
+		}
+		else
+		{
+			target = (target - start) / dived;
+		}
+
+		Point fixVector = getAvoidVector(start);
+		Point tempdebug = start + target + fixVector;
+		mylog._info("		//fixed path:%lf,%lf	start:%lf,%lf	target:%lf,%lf	fixVector:%lf,%lf", tempdebug.x, tempdebug.y, start.x, start.y, target.x, target.y, fixVector.x, fixVector.y);
+		target = start + target + fixVector;
 
 		move_s(num, target);
 
-		int size1 = path[num].size();
-		for (int i = 0; i < size1; i++)
+		if (canflash(num))
 		{
-			if (dist(start, path[num][i]) >= CONST::flash_distance and canflash(num) and !isWall(path[num][i]))
+			int size1 = oldPath[num].size();
+			Point flashTarget = Point(-1, -1);
+			for (int i = 0; i < size1; i++)
 			{
-				flash_s(num, path[num][i]);
+				int distance = dist(start, oldPath[num][i]);
+				if (distance >= CONST::flash_distance and distance <= CONST::flash_distance + 2 and !isWall(oldPath[num][i]))
+				{
+					flashTarget = oldPath[num][i];
+					pathPointsNew[num] = Point(-1, -1);
+					break;
+				}
+			}
+			if (dist(start, targetLocation) <= CONST::flash_distance and !isWall(targetLocation))
+			{
+				flashTarget = targetLocation;
 				pathPointsNew[num] = Point(-1, -1);
-				break;
+			}
+
+			//寻找替代闪现点
+			if (isPointValid(flashTarget))
+			{
+				if (getRiskMapValue(flashTarget) != 0)
+				{
+					Point newFlashPoint;
+					for (int i = 1; i <= 3; i++)
+					{
+						newFlashPoint = rotate(start, deg2rad(5 * i), flashTarget);
+						if (getRiskMapValue(newFlashPoint) == 0)
+						{
+							flashTarget = newFlashPoint;
+							break;
+						}
+					}
+					for (int i = 1; i <= 3; i++)
+					{
+						newFlashPoint = rotate(start, deg2rad(-5 * i), flashTarget);
+						if (getRiskMapValue(newFlashPoint) == 0)
+						{
+							flashTarget = newFlashPoint;
+							break;
+						}
+					}
+				}
+			}
+
+			if (isPointValid(flashTarget))
+			{
+				flash_s(num, flashTarget);
 			}
 		}
+
 		mylog.write(YFL, LOG_INFO, "	from %lf,%lf,move to %lf,%lf  path size:%d dist:%lf", start.x, start.y, target.x, target.y, path[num].size(), dist(start, target));
-		;
+		int endTimeStamp = getCurrentTimeStamp();
+		mylog.write(YFL, LOG_INFO, "(move_greed) costTime:%dms", endTimeStamp - startTimeStamp);
 	}
 }
 ////
@@ -615,16 +1037,6 @@ void move_greed(int num, Point targetLocation)
 double RandDouble() { return rand() / (double)RAND_MAX; }
 //指定范围的随机浮点数
 double RandDouble(double L, double R) { return RandDouble() * (R - L) + L; }
-
-//是否为敌方玩家
-bool isEnemy(int num)
-{
-	if (num % 2 != logic->faction)
-	{
-		return true;
-	}
-	return false;
-}
 
 //目标区域是否危险
 bool isLocationFaceExplode(Point v)
@@ -654,7 +1066,7 @@ Point findNearbySafeLocation(Point v)
 		for (int j = 0; j < 8; j++)
 		{
 			Point newPoint = rotate(v, deg2rad(45 * j), basePoint);
-			if (isLocationFaceExplode(newPoint) == false)
+			if (isLocationFaceExplode(newPoint) == false and isWall(newPoint) == false)
 			{
 				return newPoint;
 			}
@@ -704,12 +1116,18 @@ void setDefaultTargetLocation(Point dest[])
 	{
 		dest[3] = dest[4] = logic->map.target_places[logic->faction]; //将水晶送回家
 	}
-	
-	vector<Point> deltaVector = {Point(0, 0), Point(-10, -10), Point(0, -20), Point(10, -10)};
+
 	for (int i = 1; i <= 2; i++)
 	{
 		Point myLocation = GetUnit(i).position;
-		if (dist(myLocation, dest[i]) <= 20)
+		Human enemy = getTheMostNearbyEnemy(myLocation);
+		vector<Point> deltaVector = {Point(0, 0), Point(-5, -5), Point(5, -5)};
+
+		if (dist(myLocation, enemy.position) <= 4 and dist(myLocation, dest[i]) <= 5 and enemy.hp > 0)
+		{
+			dest[i] = enemy.position + Point(-2, -2);
+		}
+		else if (dist(myLocation, dest[i]) <= 20)
 		{
 			Point tempPoint;
 			tempPoint.x = deltaVector[startDirection[i]].x;
@@ -956,30 +1374,6 @@ void getTargetByPath(Point dest[])
 		}
 	}
 
-	for (int i = 0; i < 5; i++)
-	{
-		Point myPostion = GetUnit(i).position;
-		if (i == 1 || i == 2)
-		{
-			continue;
-		}
-
-		if (dist(myCrystal, myPostion) < dist(myCrystal, pathPoints[10]) - 5) //过去
-		{
-			if (dist(myCrystal, pathPoints[10]) <= dist(myCrystal, dest[i]))
-			{
-				dest[i] = pathPoints[10];
-			}
-		}
-		else if (dist(enemyCrystal, myPostion) < dist(enemyCrystal, pathPoints[10]) - 5) //回来
-		{
-			if (dist(myCrystal, pathPoints[10]) >= dist(myCrystal, dest[i]))
-			{
-				dest[i] = pathPoints[10];
-			}
-		}
-	}
-
 	int enemyCrystalBelonging = getEnemyCrystalBelonging();
 	int nearestUnitToCrystal = getNearestUnitToCrystal();
 	int headUnitIndex = 0;
@@ -1016,65 +1410,67 @@ void getTargetByPath(Point dest[])
 		basePoint = getEnemyCrystalLocation();
 	}
 
-	int highestHp = 0;
-	int highestHpUnit;
-
-	fixVector[0] = getNearbyVector(deg2rad(15 + getTeam() * 180 + angle), 8);
-	fixVector[1] = getNearbyVector(deg2rad(75 + getTeam() * 180 + angle), 8);
+	fixVector[0] = getNearbyVector(deg2rad(90 + getTeam() * 180 + angle), 6);
+	fixVector[1] = getNearbyVector(deg2rad(-90 + getTeam() * 180 + angle), 6);
 	int size = unitQueue.size();
 	for (int i = 0; i < size; i++)
 	{
 		int unitIndex = unitQueue[i];
 		Human unit = GetUnit(unitIndex);
-		if (unit.hp > highestHp)
-		{
-			highestHp = unit.hp;
-			highestHpUnit = unitIndex;
-		}
-
 		//unitQueue.pop();
 		Point newPoint = basePoint + fixVector[i];
-		if (isWall(newPoint) == false)
+		if (isWall(newPoint) == false and (getRiskMapValue(newPoint) == 0) or dist(newPoint, unit.position) >= 20)
 		{
 			dest[unitIndex] = newPoint;
 		}
 	}
 
-	// if (secondLeaderIndex != -1 and GetUnit(secondLeaderIndex).hp <= 0)
-	// {
-	// 	secondLeaderIndex = -1;
-	// }
+	bool secondBackPeriod = dist(getEnemyCrystalLocation(), getOurCrystalDefaultLocation()) < dist(pathPoints[10], getOurCrystalDefaultLocation()) - 20;
+	if (secondBackPeriod and areWeGetCrystal())
+	{
+		int size = unitQueue.size();
+		for (int i = 0; i < size; i++)
+		{
+			int unitIndex = unitQueue[i];
+			dest[unitIndex] = getEnemyCrystalDefaultLocation();
+		}
+	}
 
-	// bool secondBackPeriod = dist(getEnemyCrystalLocation(), getOurCrystalDefaultLocation()) < dist(pathPoints[10], getOurCrystalDefaultLocation()) - 25;
-	// if (secondBackPeriod and areWeGetCrystal())
-	// {
-	// 	if (secondLeaderIndex == -1)
-	// 	{
-	// 		secondLeaderIndex = highestHpUnit;
-	// 	}
-	// 	else
-	// 	{
-	// 		int size = unitQueue.size();
-	// 		for (int i = 0; i < size; i++)
-	// 		{
-	// 			if (i == 0)
-	// 			{
-	// 				int unitIndex = unitQueue[i];
-	// 				dest[unitIndex] = getEnemyCrystalDefaultLocation();
-	// 			}
-	// 			else
-	// 			{
-	// 				int unitIndex = unitQueue[i];
-	// 				dest[unitIndex] = GetUnit(unitQueue[0]).position + fixVector[0];
-	// 			}
-	// 		}
-	// 	}
-	// }
-	// else
-	// {
-	// 	secondLeaderIndex = -1;
-	// }
+	for (int i = 0; i < 5; i++)
+	{
+		Point myPostion = GetUnit(i).position;
+		if (i == 1 || i == 2)
+		{
+			continue;
+		}
 
+		if (dist(myCrystal, myPostion) < dist(myCrystal, pathPoints[10]) - 5) //过去
+		{
+			if (dist(myCrystal, pathPoints[10]) <= dist(myCrystal, dest[i]))
+			{
+				dest[i] = pathPoints[10];
+			}
+		}
+		else if (dist(enemyCrystal, myPostion) < dist(enemyCrystal, pathPoints[10]) - 5) //回来
+		{
+			if (dist(myCrystal, pathPoints[10]) >= dist(myCrystal, dest[i]))
+			{
+				dest[i] = pathPoints[10];
+			}
+		}
+	}
+
+	vector<Point> topPathPoints(10);
+	topPathPoints[0] = Point(104, 86);
+	topPathPoints[1] = Point(40, 86);
+	topPathPoints[2] = Point(122, 25);
+	topPathPoints[3] = Point(104, 86);
+	topPathPoints[4] = Point(104, 86);
+	topPathPoints[5] = Point(221, 241);
+	topPathPoints[6] = Point(195, 293);
+	topPathPoints[7] = Point(288, 233);
+	topPathPoints[8] = Point(221, 241);
+	topPathPoints[9] = Point(221, 241);
 	for (int i = 0; i < 5; i++)
 	{
 		Point myPosition = GetUnit(i).position;
@@ -1082,19 +1478,56 @@ void getTargetByPath(Point dest[])
 		double distance;
 		if (logic->faction == 0)
 		{
-			distance = 35;
+			distance = 30;
 		}
 		else
 		{
-			distance = 25;
+			distance = 30;
 		}
 
 		if (dist(myPosition, birthPosition) < distance)
 		{
-			dest[i] = logic->map.target_places[logic->faction];
+			dest[i] = fixedCrystalPosition[logic->faction];
+		}
+		else
+		{
+			if (i == 1 or i == 2)
+			{
+				Point tempPathPoint = topPathPoints[getTeam() * 5 + i];
+				if (dist(myPosition, birthPosition) < dist(tempPathPoint, birthPosition) - 5)
+				{
+					dest[i] = tempPathPoint;
+				}else if(getTeam()==1 and i==1)
+				{
+					Point tempPathPoint2 = Point(70,275);
+					if(dist(myPosition, birthPosition) < dist(tempPathPoint2, birthPosition) - 5)
+					{
+						dest[i] = tempPathPoint2;
+					}
+				}
+			}
 		}
 	}
 	return;
+}
+
+int getMinHpHeroIndex(Point myPostion)
+{
+	int minHp = 100;
+	int minHpHeroIndex = -1;
+	for (int j = 0; j < 5; j++)
+	{
+		Human unit = GetEnemyUnit(j);
+		if (unit.hp <= 0)
+			continue;
+		double distance = dist(unit.position, myPostion);
+		if (distance <= 15 and isLineWalkable(myPostion, unit.position) and unit.hp <= minHp)
+		{
+			minHp = unit.hp;
+			minHpHeroIndex = j;
+		}
+	}
+	return minHpHeroIndex;
 }
 
 //攻击并施法
@@ -1104,30 +1537,41 @@ void attackAndCast()
 	{
 		Point myPostion = GetUnit(i).position;
 		Point targetPoint = logic->map.birth_places[logic->faction ^ 1][0]; //敌方出生点
+		double minDistance = 999;
 		int targetHeroIndex = 0;
 		for (int j = 0; j < 5; j++)
 		{
 			Human unit = GetEnemyUnit(j);
 			if (unit.hp <= 0)
 				continue;
-			if (dist(unit.position, myPostion) < dist(targetPoint, myPostion))
+			double distance = dist(unit.position, myPostion);
+			if (distance < minDistance)
 			{
-				targetPoint = unit.position; //寻找最近的敌方单位
+				minDistance = distance;
 				targetHeroIndex = j;
 			}
 		}
-		double D = dist(targetPoint, myPostion) * 0.1;
 
 		Human enemy = GetEnemyUnit(targetHeroIndex);
 		Point enemyLocation = enemy.position;
 
-		double targetSpeed = getExtrapolatedSpeed(targetHeroIndex);
-		double trackFlyTime = dist(myPostion, enemyLocation) / (CONST::fireball_velocity * CONST::frames_per_second);
-		Point shootPoint = getExtrapolatedLocation(targetHeroIndex, trackFlyTime);
+		Point shootPoint;
+		int minHpHeroIndex = getMinHpHeroIndex(myPostion);
+		if (minHpHeroIndex != -1)
+		{
+			enemy = GetEnemyUnit(minHpHeroIndex);
+			enemyLocation = enemy.position;
+			shootPoint = enemyLocation;
+		}
+		else
+		{
+			double targetSpeed = getExtrapolatedSpeed(targetHeroIndex);
+			double trackFlyTime = min(dist(myPostion, enemyLocation) / (CONST::fireball_velocity * CONST::frames_per_second), 2.0);
+			shootPoint = getExtrapolatedLocation(targetHeroIndex, trackFlyTime);
+		}
+		logic->shoot(i, shootPoint); //使用火球
 
-		logic->shoot(i, targetPoint); //使用火球
-
-		Point meteorPoint = getExtrapolatedLocation(targetHeroIndex, 2);
+		Point meteorPoint = getExtrapolatedLocation(targetHeroIndex, 1.9 + 0.05 * i);
 		if (dist(meteorPoint, myPostion) <= CONST::meteor_distance && hasFlash(targetHeroIndex, CONST::meteor_delay) == false)
 		{
 			logic->meteor(i, meteorPoint); //使用陨石
@@ -1178,6 +1622,7 @@ void avoidAttack(Point dest[])
 //执行移动
 void executeMove(Point dest[])
 {
+	int startTimeStamp = getCurrentTimeStamp();
 	for (int i = 0; i < 5; i++)
 	{
 		Point myPostion = GetUnit(i).position;
@@ -1189,12 +1634,30 @@ void executeMove(Point dest[])
 			finalDest = highLevelPoints[i];
 		}
 
-		if (myPostion != finalDest)
+		int currentPointRisk = getRiskMapValue(myPostion);
+
+		if (myPostion == finalDest and currentPointRisk != 0)
 		{
-			if (isLineWalkable(myPostion, finalDest))
+			finalDest = findNearbyNoRiskLocation(finalDest);
+		}
+		if (isWall(finalDest))
+		{
+			finalDest = findNearbyMovableLocation(finalDest);
+		}
+		if (myPostion != finalDest or dist(myPostion, finalDest) > 0.5)
+		{
+			if (isLineWalkable(myPostion, finalDest) and currentPointRisk == 0)
 			{
+				// Point oldTargetVector = (finalDest - myPostion) / dist(myPostion, finalDest);
+				// Point fixVector = getAvoidVector(myPostion);
+				// Point target = myPostion + oldTargetVector + fixVector;
+				// move_s(i, target);
 				move_s(i, finalDest);
-				flash_s(i, finalDest);
+				if (dist(myPostion, finalDest) >= CONST::flash_distance / 2 and canflash(i) and !isWall(finalDest))
+				{
+					flash_s(i, finalDest);
+					pathPointsNew[i] = Point(-1, -1);
+				}
 				mylog._info("	Direct Line for (%lf,%lf) to (%lf,%lf),walk through", myPostion.x, myPostion.y, finalDest.x, finalDest.y);
 			}
 			else
@@ -1204,9 +1667,14 @@ void executeMove(Point dest[])
 		}
 		else
 		{
+			Point fixVector = getAvoidVector(myPostion);
+			Point target = myPostion + fixVector;
+			move_s(i, target);
 			mylog._info("Player %d arrival target (%lf,%lf)", i, finalDest.x, finalDest.y);
 		}
 	}
+	int endTimeStamp = getCurrentTimeStamp();
+	mylog.write(YFL, LOG_INFO, "[executeMove] costTime:%dms", endTimeStamp - startTimeStamp);
 	return;
 }
 
@@ -1251,6 +1719,7 @@ void playerAI()
 	recordHistroyLocation();
 
 	attackAndCast();
+	generateRiskMap();
 	getTargetByPath(dest);
 	//randomDest(dest);
 	avoidAttack(dest);

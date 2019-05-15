@@ -32,7 +32,7 @@ class Fireball
 {
 public:
 	Point position;  //位置
-	double rotation; //朝向[0,2\pi]
+	double rotation; //朝向[0,2pi]
 	int from_number; //来自哪个人
 
 	Fireball() {}
